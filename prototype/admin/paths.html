@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>学习路线 · 云枢智学运营台</title>
+<link rel="stylesheet" href="../assets/css/app.css">
+</head>
+<body class="admin-body">
+<div class="shell">
+  <aside class="sidebar" id="app-side"></aside>
+  <div class="main">
+    <header class="topbar" id="app-top"></header>
+    <main class="admin-page" id="app"></main>
+  </div>
+</div>
+
+<script src="../assets/js/data.js"></script>
+<script src="../assets/js/ui.js"></script>
+<script src="../assets/js/admin-shared.js"></script>
+<script>
+(function () {
+  var A = AdminApp;
+  A.renderShell('paths', '学习路线', '调整阶段顺序与阶段目标');
+  var app = document.getElementById('app');
+  var sid = 'agent';
+
+  function d() { return A.data(); }
+  function save() { A.save(d()); }
+  function routeOf(sidv) { return d().routes.find(function (r) { return r.subjectId === sidv; }); }
+
+  function render() {
+    var subjects = d().subjects;
+    var subject = subjects.find(function (s) { return s.id === sid; }) || subjects[0];
+    sid = subject.id;
+    var route = routeOf(sid);
+    var stages = route ? route.stages : [];
+    var totalCourses = stages.reduce(function (n, s) { return n + s.courses.length; }, 0);
+
+    app.innerHTML =
+      '<div class="between wrap mb-16"><div><div class="admin-title">学习路线</div>' +
+        '<div class="admin-sub">学科 → 一条主路线 → 有序阶段 → 课程 + 题目。阶段不锁定，但顺序决定推荐路径。</div></div></div>' +
+
+      '<div class="seg mb-20" style="flex-wrap:wrap">' + subjects.map(function (s) {
+        return '<button data-subj="' + s.id + '" class="' + (s.id === sid ? 'active' : '') + '">' + UI.esc(s.name) + '</button>';
+      }).join('') + '</div>' +
+
+      (route ? '<div class="card card-pad mb-16" style="display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap;align-items:center">' +
+        '<div class="row gap-12">' +
+          '<div class="tool-ic" style="width:44px;height:44px;border-radius:13px;background:' + subject.color + '1a;color:' + subject.color + '">' + UI.icon(subject.icon, 22) + '</div>' +
+          '<div><div class="semibold" style="font-size:15px">' + UI.esc(route.name) + '</div>' +
+            '<div class="small muted" style="margin-top:3px">' + stages.length + ' 个阶段 · ' + totalCourses + ' 门课程 · ' +
+              stages.reduce(function (n, s) { return n + s.questions.length; }, 0) + ' 道题</div></div>' +
+        '</div>' +
+        '<div class="row gap-8">' +
+          '<button class="btn btn-sm btn-ghost" data-edit-route>' + UI.icon('edit', 13) + '编辑路线说明</button>' +
+          '<button class="btn btn-sm btn-primary" data-add-stage>' + UI.icon('plus', 13) + '新增阶段</button>' +
+        '</div>' +
+      '</div>' +
+
+      (stages.length ? '<div class="col gap-12">' + stages.map(function (st, i) {
+        var minutes = st.courses.reduce(function (n, c) { return n + c.minutes; }, 0);
+        return '<div class="card card-pad" style="display:flex;gap:14px;align-items:flex-start">' +
+          '<div class="tl-idx" style="background:' + (i === 0 ? 'linear-gradient(135deg,var(--brand),var(--brand-2))' : '#F1F2F7') + ';color:' + (i === 0 ? '#fff' : 'var(--muted)') + '">' + (i + 1) + '</div>' +
+          '<div style="flex:1;min-width:0">' +
+            '<div class="row gap-8 wrap"><b style="font-size:14.5px">' + UI.esc(st.name) + '</b>' +
+              (i === 0 ? '<span class="tag tag-brand">推荐起点</span>' : '') + '</div>' +
+            '<div class="small muted" style="margin-top:3px">' + UI.esc(st.goal || '未填写阶段目标') + '</div>' +
+            '<div class="row gap-16 mt-10 small muted">' +
+              '<span>' + UI.icon('video', 13) + ' ' + st.courses.length + ' 门课程</span>' +
+              '<span>' + UI.icon('edit', 13) + ' ' + st.questions.length + ' 道题</span>' +
+              '<span>' + UI.icon('clock', 13) + ' ' + minutes + ' 分钟</span>' +
+            '</div>' +
+          '</div>' +
+          '<div class="row gap-4">' +
+            '<button class="btn btn-sm btn-icon btn-ghost" title="上移" data-move="up" data-stage="' + st.id + '" ' + (i === 0 ? 'disabled' : '') + '>' + UI.icon('arrowUp', 14) + '</button>' +
+            '<button class="btn btn-sm btn-icon btn-ghost" title="下移" data-move="down" data-stage="' + st.id + '" ' + (i === stages.length - 1 ? 'disabled' : '') + '>' + UI.icon('arrowDown', 14) + '</button>' +
+            '<button class="btn btn-sm btn-ghost" data-edit-stage="' + st.id + '">编辑</button>' +
+            '<button class="btn btn-sm btn-ghost" style="color:var(--red)" data-del-stage="' + st.id + '">删除</button>' +
+          '</div>' +
+        '</div>';
+      }).join('') + '</div>'
+        : '<div class="card">' + UI.emptyHtml('还没有阶段', '点击“新增阶段”，然后到内容管理里补充课程与题目。', 'layers') +
+          '<div class="center" style="padding-bottom:30px"><button class="btn btn-primary" data-add-stage>新增阶段</button></div></div>') +
+
+        '<div class="card card-pad mt-16" style="background:#FAFBFF">' +
+          '<div class="row" style="align-items:flex-start;gap:10px">' +
+            '<span style="color:var(--brand)">' + UI.icon('info', 16) + '</span>' +
+            '<div class="small muted" style="line-height:1.8">' +
+              '· 调整顺序只改变推荐路径，不影响学员已完成的课程进度；<br>' +
+              '· 删除阶段会同时移除其下的课程与题目，学员端对应记录不再展示；<br>' +
+              '· 阶段不锁定，学员可直接进入任意阶段学习。' +
+            '</div>' +
+          '</div>' +
+        '</div>' : '<div class="card">' + UI.emptyHtml('该学科还没有学习路线', '请先在内容管理中维护学科。', 'map') + '</div>');
+  }
+
+  function stageForm(id) {
+    var route = routeOf(sid);
+    var st = id ? route.stages.find(function (x) { return x.id === id; }) : null;
+    UI.modal({
+      title: st ? '编辑阶段' : '新增阶段',
+      subtitle: route.name,
+      body:
+        '<div class="field"><label>阶段名称<span class="req">*</span></label><input class="input" id="stName" value="' + UI.esc(st ? st.name : '') + '" placeholder="如：阶段五 · 数据分析实战"></div>' +
+        '<div class="field"><label>阶段目标</label><textarea class="textarea" id="stGoal" style="min-height:80px" placeholder="学完这个阶段应该能做到什么">' + UI.esc(st ? st.goal : '') + '</textarea></div>' +
+        '<div class="hint">课程与题目在「内容管理」中维护，保存后可在那边继续补充。</div>',
+      actions: [
+        { label: '取消', cls: 'btn-ghost' },
+        { label: '保存', cls: 'btn-primary', onClick: function (ov) {
+            var name = ov.querySelector('#stName').value.trim();
+            if (!name) { UI.toast('请填写阶段名称', 'err'); return false; }
+            var goal = ov.querySelector('#stGoal').value.trim();
+            if (st) {
+              st.name = name; st.goal = goal;
+              A.log('学习路线', '编辑阶段', name);
+            } else {
+              var maxN = 0;
+              route.stages.forEach(function (s) {
+                var m = /-s(\d+)$/.exec(s.id);
+                if (m) maxN = Math.max(maxN, Number(m[1]));
+              });
+              route.stages.push({
+                id: sid + '-s' + (maxN + 1) + '-' + Date.now().toString(36),
+                name: name, goal: goal, courses: [], questions: []
+              });
+              A.log('学习路线', '新增阶段', name);
+            }
+            save(); UI.toast('已保存'); render();
+          } }
+      ]
+    });
+  }
+
+  function editRoute() {
+    var route = routeOf(sid);
+    UI.modal({
+      title: '编辑路线说明',
+      body:
+        '<div class="field"><label>路线名称</label><input class="input" id="rName" value="' + UI.esc(route.name) + '"></div>' +
+        '<div class="field"><label>路线说明</label><textarea class="textarea" id="rDesc" style="min-height:90px">' + UI.esc(route.desc) + '</textarea></div>',
+      actions: [
+        { label: '取消', cls: 'btn-ghost' },
+        { label: '保存', cls: 'btn-primary', onClick: function (ov) {
+            var n = ov.querySelector('#rName').value.trim();
+            if (!n) { UI.toast('路线名称不能为空', 'err'); return false; }
+            route.name = n;
+            route.desc = ov.querySelector('#rDesc').value.trim();
+            A.log('学习路线', '编辑路线', n);
+            save(); UI.toast('已保存'); render();
+          } }
+      ]
+    });
+  }
+
+  render();
+
+  app.addEventListener('click', function (e) {
+    var subj = e.target.closest('[data-subj]');
+    if (subj) { sid = subj.getAttribute('data-subj'); render(); return; }
+    if (e.target.closest('[data-add-stage]')) { stageForm(null); return; }
+    if (e.target.closest('[data-edit-route]')) { editRoute(); return; }
+
+    var es = e.target.closest('[data-edit-stage]');
+    if (es) { stageForm(es.getAttribute('data-edit-stage')); return; }
+
+    var mv = e.target.closest('[data-move]');
+    if (mv) {
+      var route = routeOf(sid);
+      var id = mv.getAttribute('data-stage');
+      var i = route.stages.findIndex(function (s) { return s.id === id; });
+      var j = mv.getAttribute('data-move') === 'up' ? i - 1 : i + 1;
+      if (i < 0 || j < 0 || j >= route.stages.length) return;
+      var tmp = route.stages[i];
+      route.stages[i] = route.stages[j];
+      route.stages[j] = tmp;
+      A.log('学习路线', '调整阶段顺序', route.stages[j].name + ' → 第 ' + (j + 1) + ' 位');
+      save(); render();
+      UI.toast('顺序已调整');
+      return;
+    }
+
+    var ds = e.target.closest('[data-del-stage]');
+    if (ds) {
+      var rid = ds.getAttribute('data-del-stage');
+      var rt = routeOf(sid);
+      var st = rt.stages.find(function (s) { return s.id === rid; });
+      if (!st) return;
+      UI.confirm('删除阶段', '「' + UI.esc(st.name) + '」下有 ' + st.courses.length + ' 门课程、' + st.questions.length + ' 道题，删除后一并移除，且不可恢复。确定删除吗？', function () {
+        rt.stages.splice(rt.stages.indexOf(st), 1);
+        A.log('学习路线', '删除阶段', st.name);
+        save(); UI.toast('已删除'); render();
+      }, '删除', true);
+    }
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>操作日志 · 云枢智学运营台</title>
+<link rel="stylesheet" href="../assets/css/app.css">
+</head>
+<body class="admin-body">
+<div class="shell">
+  <aside class="sidebar" id="app-side"></aside>
+  <div class="main">
+    <header class="topbar" id="app-top"></header>
+    <main class="admin-page" id="app"></main>
+  </div>
+</div>
+
+<script src="../assets/js/data.js"></script>
+<script src="../assets/js/ui.js"></script>
+<script src="../assets/js/admin-shared.js"></script>
+<script>
+(function () {
+  var A = AdminApp;
+  A.renderShell('logs', '操作日志', '记录内容与学员的关键变更');
+  var app = document.getElementById('app');
+  var kw = '';
+  var moduleFilter = 'all';
+  var whoFilter = 'all';
+  var page = 1;
+  var PAGE_SIZE = 12;
+
+  function d() { return A.data(); }
+  function save() { A.save(d()); }
+
+  function filtered() {
+    return d().logs.filter(function (l) {
+      var okKw = !kw || (l.action + l.target + l.who).indexOf(kw) >= 0;
+      var okM = moduleFilter === 'all' || l.module === moduleFilter;
+      var okW = whoFilter === 'all' || l.who === whoFilter;
+      return okKw && okM && okW;
+    });
+  }
+
+  function modules() {
+    var out = [];
+    d().logs.forEach(function (l) { if (out.indexOf(l.module) < 0) out.push(l.module); });
+    return out;
+  }
+  function whos() {
+    var out = [];
+    d().logs.forEach(function (l) { if (out.indexOf(l.who) < 0) out.push(l.who); });
+    return out;
+  }
+
+  function render() {
+    var list = filtered();
+    var pages = Math.max(1, Math.ceil(list.length / PAGE_SIZE));
+    if (page > pages) page = pages;
+    var rows = list.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+    app.innerHTML =
+      '<div class="between wrap mb-16"><div><div class="admin-title">操作日志</div>' +
+        '<div class="admin-sub">谁在什么时间、对哪个对象做了什么操作，便于追溯。</div></div></div>' +
+
+      '<div class="toolbar">' +
+        '<div class="search">' + UI.icon('search', 15) + '<input class="input" id="lKw" placeholder="搜索动作 / 对象 / 操作人" value="' + UI.esc(kw) + '"></div>' +
+        '<select class="select" id="lModule"><option value="all">全部模块</option>' + modules().map(function (m) {
+          return '<option value="' + UI.esc(m) + '" ' + (moduleFilter === m ? 'selected' : '') + '>' + UI.esc(m) + '</option>';
+        }).join('') + '</select>' +
+        '<select class="select" id="lWho"><option value="all">全部操作人</option>' + whos().map(function (w) {
+          return '<option value="' + UI.esc(w) + '" ' + (whoFilter === w ? 'selected' : '') + '>' + UI.esc(w) + '</option>';
+        }).join('') + '</select>' +
+        '<div style="flex:1"></div><span class="small muted">共 ' + list.length + ' 条</span>' +
+      '</div>' +
+
+      '<div class="table-wrap"><table class="table" style="min-width:720px"><thead><tr>' +
+        '<th style="width:150px">时间</th><th>操作人</th><th>模块</th><th>动作</th><th>对象</th></tr></thead><tbody>' +
+        (rows.length ? rows.map(function (l) {
+          return '<tr><td class="small muted mono">' + UI.esc(l.time) + '</td>' +
+            '<td><div class="td-main">' + UI.avatarHtml(l.who, 'sm') + '<span class="small">' + UI.esc(l.who) + '</span></div></td>' +
+            '<td><span class="tag">' + UI.esc(l.module) + '</span></td>' +
+            '<td class="semibold" style="font-weight:600">' + UI.esc(l.action) + '</td>' +
+            '<td class="muted">' + UI.esc(l.target) + '</td></tr>';
+        }).join('') : '<tr><td colspan="5"><div class="empty" style="padding:34px">没有匹配的日志</div></td></tr>') +
+      '</tbody></table></div>' +
+
+      '<div class="pager"><span>第 ' + page + ' / ' + pages + ' 页</span>' +
+        '<div class="pages">' +
+          '<button class="pg" data-page="' + (page - 1) + '" ' + (page === 1 ? 'disabled' : '') + '>上一页</button>' +
+          '<button class="pg" data-page="' + (page + 1) + '" ' + (page === pages ? 'disabled' : '') + '>下一页</button>' +
+        '</div>' +
+      '</div>';
+  }
+
+  render();
+
+  app.addEventListener('click', function (e) {
+    var pg = e.target.closest('[data-page]');
+    if (pg && !pg.disabled) { page = Number(pg.getAttribute('data-page')); render(); }
+  });
+
+  app.addEventListener('input', function (e) {
+    if (e.target.id === 'lKw') {
+      var el = e.target;
+      clearTimeout(el._t);
+      el._t = setTimeout(function () {
+        kw = el.value.trim(); page = 1; render();
+        var next = document.getElementById('lKw');
+        if (next) { next.focus(); next.setSelectionRange(next.value.length, next.value.length); }
+      }, 240);
+    }
+  });
+  app.addEventListener('change', function (e) {
+    if (e.target.id === 'lModule') { moduleFilter = e.target.value; page = 1; render(); }
+    if (e.target.id === 'lWho') { whoFilter = e.target.value; page = 1; render(); }
+  });
+})();
+</script>
+</body>
+</html>

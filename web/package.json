@@ -1,0 +1,23 @@
+{
+  "name": "yunshu-zhixue-web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.18.1",
+  "scripts": {
+    "dev:student": "pnpm --filter @yunshu/student dev",
+    "dev:admin": "pnpm --filter @yunshu/admin dev",
+    "build": "pnpm --filter @yunshu/student build && pnpm --filter @yunshu/admin build",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "eslint .",
+    "format": "prettier --write ."
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.35.0",
+    "eslint": "^9.35.0",
+    "eslint-plugin-vue": "^10.4.0",
+    "prettier": "^3.6.2",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.44.0"
+  }
+}

@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>数据看板 · 云枢智学运营台</title>
+<link rel="stylesheet" href="../assets/css/app.css">
+</head>
+<body class="admin-body">
+<div class="shell">
+  <aside class="sidebar" id="app-side"></aside>
+  <div class="main">
+    <header class="topbar" id="app-top"></header>
+    <main class="admin-page" id="app"></main>
+  </div>
+</div>
+
+<script src="../assets/js/data.js"></script>
+<script src="../assets/js/ui.js"></script>
+<script src="../assets/js/admin-shared.js"></script>
+<script>
+(function () {
+  var A = AdminApp;
+  A.renderShell('dashboard', '数据看板', '机构整体学习与内容效果');
+  var app = document.getElementById('app');
+  var d = A.data();
+  var students = d.students.filter(function (s) { return s.status !== '注销'; });
+  var activeToday = students.filter(function (s) { return s.lastActive === '今天'; }).length;
+  var avgProgress = Math.round(students.reduce(function (n, s) { return n + s.progress; }, 0) / (students.length || 1));
+  var totalQ = A.questionCount();
+  var totalC = A.courseCount();
+
+  var days = ['10-24', '10-25', '10-26', '10-27', '10-28', '10-29', '10-30'];
+  var activeSeries = [18, 22, 16, 25, 21, 14, 16];
+  var practiceSeries = [58, 64, 49, 72, 61, 55, 63];
+  var accSeries = [62, 65, 63, 70, 67, 71, 68];
+
+  var routeCounts = d.routes.map(function (r) {
+    var s = d.subjects.find(function (x) { return x.id === r.subjectId; });
+    var n = students.filter(function (st) { return st.routeId === r.id; }).length;
+    return { name: (s ? s.name : r.name), value: n, color: s ? s.color : '#4F46E5' };
+  });
+
+  var effect = [
+    { title: '工具调用与函数签名设计', stage: 'Agent 开发 · 阶段三', learn: 186, finish: 72, acc: 76 },
+    { title: '结构化提示词：角色、任务、约束', stage: 'Agent 开发 · 阶段二', learn: 172, finish: 68, acc: 71 },
+    { title: 'Spring Boot 起步', stage: 'Java 开发 · 阶段二', learn: 154, finish: 61, acc: 65 },
+    { title: 'RAG 基础：检索增强生成', stage: 'AI 全栈开发 · 阶段二', learn: 143, finish: 57, acc: 62 },
+    { title: '多智能体协作模式', stage: 'Agent 开发 · 阶段四', learn: 121, finish: 44, acc: 58 }
+  ];
+
+  app.innerHTML =
+    '<div class="between wrap mb-16">' +
+      '<div><div class="admin-title">数据看板</div><div class="admin-sub">统计口径：当天有登录、标记完成、练习或面试任一项行为即算活跃。</div></div>' +
+      '<span class="small muted">' + UI.icon('refresh', 13) + ' 数据更新于 ' + A.session().name + ' 登录时</span>' +
+    '</div>' +
+
+    '<div class="kpi">' +
+      '<div class="kpi-card"><div class="ic ic-brand">' + UI.icon('users', 17) + '</div><div class="lb">学员总数</div>' +
+        '<div class="val">' + students.length + '</div><div class="dt up">' + UI.icon('arrowUp', 12) + ' 本周新增 3</div></div>' +
+      '<div class="kpi-card"><div class="ic ic-green">' + UI.icon('flame', 17) + '</div><div class="lb">今日活跃</div>' +
+        '<div class="val">' + activeToday + '</div><div class="dt up">活跃率 ' + Math.round(activeToday / (students.length || 1) * 100) + '%</div></div>' +
+      '<div class="kpi-card"><div class="ic ic-blue">' + UI.icon('video', 17) + '</div><div class="lb">平均课程完成度</div>' +
+        '<div class="val">' + avgProgress + '<small>%</small></div><div class="dt up">' + UI.icon('arrowUp', 12) + ' 较上周 +4%</div></div>' +
+      '<div class="kpi-card"><div class="ic ic-amber">' + UI.icon('sparkles', 17) + '</div><div class="lb">面试平均总评</div>' +
+        '<div class="val">71</div><div class="dt up">' + UI.icon('arrowUp', 12) + ' 较上周 +3</div></div>' +
+    '</div>' +
+
+    '<div class="grid g2 mt-16">' +
+      '<div class="chart-card">' +
+        '<div class="between"><div><h4>学习活跃趋势</h4><div class="sub">近 7 天 · 活跃学员数</div></div><span class="tag tag-green">' + activeToday + ' 今日</span></div>' +
+        '<div class="chart-box">' + UI.lineChart(days, [{ data: activeSeries, color: '#4F46E5' }], { max: 30 }) + '</div>' +
+      '</div>' +
+      '<div class="chart-card">' +
+        '<div class="between"><div><h4>练习与掌握度</h4><div class="sub">近 7 天 · 练习次数 / 平均正确率</div></div>' +
+          '<div class="legend" style="margin:0"><span><i style="background:#7C3AED"></i>练习次数</span><span><i style="background:#12B76A"></i>正确率</span></div></div>' +
+        '<div class="chart-box">' + UI.lineChart(days, [
+          { data: practiceSeries, color: '#7C3AED' },
+          { data: accSeries, color: '#12B76A' }
+        ], { max: 100 }) +
+        '</div><div class="tiny muted" style="text-align:right">练习次数已归一化到 0-100 显示</div>' +
+      '</div>' +
+    '</div>' +
+
+    '<div class="grid mt-16" style="grid-template-columns:1.5fr 1fr;align-items:start">' +
+      '<div class="chart-card">' +
+        '<div class="between mb-12"><div><h4>内容效果</h4><div class="sub">课程完成率与练习正确率，用于判断内容是否需要迭代</div></div>' +
+          '<a class="small" style="color:var(--brand);font-weight:600" href="content.html">去内容管理</a></div>' +
+        '<div class="table-wrap" style="border:0">' +
+          '<table class="table" style="min-width:520px"><thead><tr><th>课程</th><th>学习人数</th><th>完成率</th><th>练习正确率</th></tr></thead><tbody>' +
+            effect.map(function (e) {
+              return '<tr><td><div class="td-title">' + UI.esc(e.title) + '</div><div class="td-sub">' + UI.esc(e.stage) + '</div></td>' +
+                '<td class="mono">' + e.learn + '</td>' +
+                '<td style="min-width:110px"><div class="row gap-8"><span class="progress sm" style="flex:1"><i style="width:' + e.finish + '%"></i></span><span class="small mono">' + e.finish + '%</span></div></td>' +
+                '<td><span class="tag ' + (e.acc >= 70 ? 'tag-green' : e.acc >= 60 ? 'tag-amber' : 'tag-red') + '">' + e.acc + '%</span></td></tr>';
+            }).join('') +
+          '</tbody></table>' +
+        '</div>' +
+      '</div>' +
+
+      '<div class="chart-card">' +
+        '<div class="between mb-12"><div><h4>路线分布</h4><div class="sub">学员当前主路线</div></div></div>' +
+        UI.barChart(routeCounts.map(function (r) { return r.name.replace(' 开发', ''); }), routeCounts.map(function (r) { return r.value; }), {
+          colors: routeCounts.map(function (r) { return r.color; }), suffix: ' 人'
+        }) +
+        '<div class="divider"></div>' +
+        '<div class="between"><span class="small muted">课程总数</span><span class="semibold">' + totalC + '</span></div>' +
+        '<div class="between mt-8"><span class="small muted">题目总数</span><span class="semibold">' + totalQ + '</span></div>' +
+        '<div class="between mt-8"><span class="small muted">阶段总数</span><span class="semibold">' + A.stageCount() + '</span></div>' +
+      '</div>' +
+    '</div>' +
+
+    '<div class="chart-card mt-16">' +
+      '<div class="between mb-12"><div><h4>最近操作</h4><div class="sub">内容与学员变更记录</div></div>' +
+        '<a class="small" style="color:var(--brand);font-weight:600" href="logs.html">查看全部日志</a></div>' +
+      '<div class="table-wrap" style="border:0"><table class="table" style="min-width:560px">' +
+        '<thead><tr><th>操作人</th><th>模块</th><th>动作</th><th>对象</th><th>时间</th></tr></thead><tbody>' +
+        d.logs.slice(0, 6).map(function (l) {
+          return '<tr><td>' + UI.esc(l.who) + '</td><td><span class="tag">' + UI.esc(l.module) + '</span></td>' +
+            '<td>' + UI.esc(l.action) + '</td><td class="muted">' + UI.esc(l.target) + '</td><td class="small muted">' + UI.esc(l.time) + '</td></tr>';
+        }).join('') +
+      '</tbody></table></div>' +
+    '</div>';
+})();
+</script>
+</body>
+</html>

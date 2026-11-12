@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>首页 · 云枢智学</title>
+<link rel="stylesheet" href="../assets/css/app.css">
+</head>
+<body>
+<div id="app-header"></div>
+<main class="container page" id="app"></main>
+
+<script src="../assets/js/data.js"></script>
+<script src="../assets/js/ui.js"></script>
+<script src="../assets/js/c-shared.js"></script>
+<script>
+(function () {
+  var user = C.init('home');
+  if (!user) return;
+  var app = document.getElementById('app');
+  var h = new Date().getHours();
+  var greet = h < 6 ? '夜深了' : h < 12 ? '早上好' : h < 14 ? '中午好' : h < 18 ? '下午好' : '晚上好';
+  var route = C.route();
+
+  function routeCard(r) {
+    var s = DATA.content().subjects.find(function (x) { return x.id === r.subjectId; });
+    var stages = r.stages.length;
+    var courses = r.stages.reduce(function (n, st) { return n + st.courses.length; }, 0);
+    var questions = r.stages.reduce(function (n, st) { return n + st.questions.length; }, 0);
+    var joined = user.mainRoute === r.id;
+    return '<div class="route-card">' +
+      '<div class="route-cover" style="background:' + C.gradient(s) + '">' +
+        '<div class="between"><div class="rc-ic">' + UI.icon(s.icon, 21) + '</div>' +
+          '<span class="tag" style="background:rgba(255,255,255,.2);color:#fff">' + UI.esc(s.badge) + '</span></div>' +
+        '<div><h3>' + UI.esc(s.name) + '</h3><p>' + UI.esc(s.tagline) + '</p></div>' +
+      '</div>' +
+      '<div class="route-body">' +
+        '<div class="route-stats">' +
+          '<div><b>' + stages + '</b>阶段</div>' +
+          '<div><b>' + courses + '</b>课程</div>' +
+          '<div><b>' + questions + '</b>题目</div>' +
+        '</div>' +
+        '<div class="route-foot">' +
+          '<span class="small ' + (joined ? 'semibold' : 'muted') + '" style="color:' + (joined ? 'var(--brand)' : '') + '">' + (joined ? '当前主路线' : '') + '</span>' +
+          '<button class="btn btn-sm ' + (joined ? 'btn-soft' : 'btn-primary') + '" data-join="' + r.id + '">' + (joined ? '继续学习' : '加入路线') + '</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  }
+
+  if (!route) {
+    app.innerHTML =
+      '<section class="hero">' +
+        '<div class="hero-inner"><div>' +
+          '<div class="hero-route">开始之前</div>' +
+          '<h1>' + greet + '，' + UI.esc(user.nickname) + '</h1>' +
+          '<p>你还没有选择学习路线。选一条适合你的方向，系统会按阶段带你学课、刷题、做 AI 面试。</p>' +
+        '</div></div>' +
+      '</section>' +
+      '<div class="page-head" style="margin-bottom:14px"><div><div class="page-title" style="font-size:20px">选择一条学习路线</div>' +
+        '<div class="page-sub">同一时间只能有一条主路线，之后可以随时更换，进度会保留</div></div></div>' +
+      '<div class="grid g3">' + DATA.content().routes.map(routeCard).join('') + '</div>';
+  } else {
+    var subject = C.subject(route);
+    var stats = C.routeStats(route.id);
+    var stage = C.currentStage(route);
+    var next = C.nextCourse(route.id);
+    var mastery = stage ? C.mastery(stage.id) : null;
+    var wrongs = C.wrongList().length;
+    var ivs = C.interviews().length;
+    var latestPractice = C.practices()[0];
+    var latestIv = C.interviews().find(function (i) { return i.status === 'completed' && i.report; });
+    var quizHref = stage ? ('quiz.html?stage=' + encodeURIComponent(stage.id)) : 'routes.html';
+
+    var nextCourses = '';
+    if (stage) {
+      var shown = 0;
+      for (var i = 0; i < stage.courses.length && shown < 3; i++) {
+        var co = stage.courses[i];
+        var done = C.isCompleted(co.id);
+        nextCourses += '<div class="course-row ' + (done ? 'done' : '') + '">' +
+          '<div class="course-num">' + (done ? UI.icon('check', 14) : (i + 1)) + '</div>' +
+          '<div class="course-main"><h4>' + UI.esc(co.title) + '</h4>' +
+            '<div class="meta"><span>' + co.minutes + ' 分钟</span><span>' + (done ? '已完成' : '待学习') + '</span></div></div>' +
+          '<div class="course-act"><a class="btn btn-sm ' + (done ? 'btn-ghost' : 'btn-soft') + '" href="' + C.stageHref(stage.id) + '">' + (done ? '回看' : '去学习') + '</a></div>' +
+        '</div>';
+        shown++;
+      }
+    }
+
+    app.innerHTML =
+      '<section class="hero">' +
+        '<div class="hero-inner">' +
+          '<div style="flex:1;min-width:280px">' +
+            '<div class="hero-route">当前学习路线 · <b>' + UI.esc(subject.name) + '</b></div>' +
+            '<h1>' + greet + '，' + UI.esc(user.nickname) + ' 👋</h1>' +
+            '<p>' + (next ? ('当前处于「' + UI.esc(stage.name) + '」，下一课是《' + UI.esc(next.course.title) + '》。') : '这条路线已经全部学完，去面试检验一下掌握程度吧。') + '</p>' +
+            '<div class="row mt-20" style="gap:10px">' +
+              '<a class="btn btn-primary" href="' + (next ? C.stageHref(stage.id) : 'interview.html') + '">' + UI.icon(next ? 'play' : 'sparkles', 15) + (next ? '继续学习' : '去做 AI 面试') + '</a>' +
+              '<a class="btn btn-ghost" href="routes.html">切换路线</a>' +
+            '</div>' +
+          '</div>' +
+          '<div class="hero-side">' +
+            '<div class="ring" style="--p:' + stats.pct + '"><div style="text-align:center"><span>' + stats.pct + '%</span><small>路线进度</small></div></div>' +
+            '<div>' +
+              '<div style="font-size:12px;color:rgba(255,255,255,.5);margin-bottom:8px">已完成 ' + stats.done + ' / ' + stats.total + ' 门课程</div>' +
+              '<div style="font-size:12px;color:rgba(255,255,255,.5);margin-bottom:4px">当前阶段</div>' +
+              '<div class="semibold" style="font-size:13.5px">' + (stage ? UI.esc(stage.name) : '—') + '</div>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+      '</section>' +
+
+      '<div class="grid g4" style="margin-bottom:22px">' +
+        '<a class="tool-card" href="' + quizHref + '">' +
+          '<div class="tool-ic ic-brand">' + UI.icon('edit', 19) + '</div>' +
+          '<div><h4>去刷题</h4><p>' + (stage ? '练习「' + UI.esc(stage.name.replace(/^阶段[一二三四五六七八九十]+ · /, '')) + '」' : '选择一个阶段开始') + '</p></div>' +
+        '</a>' +
+        '<a class="tool-card" href="interview.html">' +
+          '<div class="tool-ic ic-green">' + UI.icon('sparkles', 19) + '</div>' +
+          '<div><h4>AI 语音面试</h4><p>语音作答，自动转文字</p></div>' +
+        '</a>' +
+        '<a class="tool-card" href="wrongbook.html">' +
+          '<div class="tool-ic ic-amber">' + UI.icon('book', 19) + '</div>' +
+          '<div><h4>错题本</h4><p>' + wrongs + ' 道题待复习</p></div>' +
+        '</a>' +
+        '<a class="tool-card" href="records.html">' +
+          '<div class="tool-ic ic-blue">' + UI.icon('clock', 19) + '</div>' +
+          '<div><h4>面试记录</h4><p>共 ' + ivs + ' 场，可对比进步</p></div>' +
+        '</a>' +
+      '</div>' +
+
+      '<div class="grid g2" style="align-items:start">' +
+        '<div class="card">' +
+          '<div class="card-hd"><div><div class="card-title">' + (stage ? UI.esc(stage.name) : '当前阶段') + '</div>' +
+            '<div class="small muted" style="margin-top:2px">' + (stage ? UI.esc(stage.goal) : '') + '</div></div>' +
+            '<a class="btn btn-sm btn-ghost" href="' + (stage ? C.stageHref(stage.id) : 'routes.html') + '">查看阶段' + UI.icon('chevronRight', 14) + '</a></div>' +
+          '<div class="card-pad">' +
+            '<div class="between mb-12"><span class="small muted">阶段进度</span><span class="small semibold">' + (stage ? C.stageStats(stage.id).done + ' / ' + C.stageStats(stage.id).total : '—') + '</span></div>' +
+            UI.progressHtml(stage ? C.stageStats(stage.id).pct : 0, '') +
+            '<div class="mt-16">' + nextCourses + '</div>' +
+          '</div>' +
+        '</div>' +
+
+        '<div class="card card-pad">' +
+          '<div class="card-title mb-12">最近动态</div>' +
+          '<div class="between" style="padding:12px 0;border-bottom:1px solid var(--line-2)">' +
+            '<div class="row">' +
+              '<div class="tool-ic ic-brand" style="width:32px;height:32px;border-radius:9px">' + UI.icon('target', 16) + '</div>' +
+              '<div><div class="semibold" style="font-size:13px">阶段掌握度</div><div class="tiny muted">' + (mastery ? UI.esc(stage.name) : '还没有完成过练习') + '</div></div>' +
+            '</div>' +
+            '<div class="center">' + (mastery ? '<span style="font-size:20px;font-weight:800">' + mastery.accuracy + '%</span>' + (mastery.sample ? '<div class="tag tag-amber" style="margin-top:3px">样本较少</div>' : '') : '<span class="muted small">—</span>') + '</div>' +
+          '</div>' +
+          '<div class="between" style="padding:12px 0;border-bottom:1px solid var(--line-2)">' +
+            '<div class="row">' +
+              '<div class="tool-ic ic-amber" style="width:32px;height:32px;border-radius:9px">' + UI.icon('edit', 16) + '</div>' +
+              '<div><div class="semibold" style="font-size:13px">最近一次练习</div><div class="tiny muted">' + (latestPractice ? UI.fmtDate(latestPractice.at) : '暂无记录') + '</div></div>' +
+            '</div>' +
+            '<div class="center">' + (latestPractice ? '<span style="font-size:20px;font-weight:800">' + latestPractice.accuracy + '%</span><div class="tiny muted">' + latestPractice.correct + '/' + latestPractice.total + ' 题</div>' : '<span class="muted small">—</span>') + '</div>' +
+          '</div>' +
+          '<div class="between" style="padding:12px 0">' +
+            '<div class="row">' +
+              '<div class="tool-ic ic-green" style="width:32px;height:32px;border-radius:9px">' + UI.icon('sparkles', 16) + '</div>' +
+              '<div><div class="semibold" style="font-size:13px">最近一次 AI 面试</div><div class="tiny muted">' + (latestIv ? UI.fmtDate(latestIv.finishedAt || latestIv.startedAt) : '暂无记录') + '</div></div>' +
+            '</div>' +
+            '<div class="center">' + (latestIv && latestIv.report ? '<span style="font-size:20px;font-weight:800">' + latestIv.report.overall + '</span><div class="tiny muted">总评</div>' : '<span class="muted small">—</span>') + '</div>' +
+          '</div>' +
+          '<a class="btn btn-ghost btn-block mt-8" href="records.html">查看全部记录</a>' +
+        '</div>' +
+      '</div>';
+  }
+
+  app.addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-join]');
+    if (!btn) return;
+    var rid = btn.getAttribute('data-join');
+    if (user.mainRoute === rid) { location.href = 'route.html?id=' + encodeURIComponent(rid); return; }
+    UI.confirm('加入学习路线', '加入后，你可以在首页看到这条路线和阶段进度。之后也可以随时切换，进度会保留。', function () {
+      user.mainRoute = rid;
+      Store.set('user', user);
+      UI.toast('已加入路线');
+      setTimeout(function () { location.reload(); }, 320);
+    }, '加入');
+  });
+})();
+</script>
+</body>
+</html>

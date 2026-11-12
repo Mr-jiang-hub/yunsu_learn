@@ -1,0 +1,44 @@
+spring:
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      pool-name: yunshu-hikari
+      maximum-pool-size: 20
+      minimum-idle: 5
+      connection-timeout: 3000
+
+app:
+  security:
+    # 生产必须注入真实密钥；保留 dev-only 默认值会让 StartupValidator 直接拒绝启动
+    phone-aes-key: ${PHONE_AES_KEY:}
+    phone-hmac-key: ${PHONE_HMAC_KEY:}
+    c:
+      secret: ${JWT_C_SECRET:}
+    admin:
+      secret: ${JWT_ADMIN_SECRET:}
+
+# 生产只允许阿里云 OSS；S3/MinIO 仅用于开发
+storage:
+  type: oss
+
+integration:
+  ai:
+    provider: ${AI_PROVIDER:aliyun}
+  sms:
+    provider: ${SMS_PROVIDER:aliyun}
+
+# Spring Boot 内置结构化日志（ECS JSON），便于后续接入日志采集
+logging:
+  structured:
+    format:
+      console: ecs
+  level:
+    root: INFO
+
+management:
+  endpoint:
+    health:
+      show-details: never

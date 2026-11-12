@@ -1,0 +1,984 @@
+openapi: 3.1.0
+info:
+  title: 云枢智学 · 公共契约组件
+  version: 1.0.0
+  description: |
+    仅包含统一响应、分页、错误、鉴权与通用请求/响应 schema。
+    业务路径见 c-end.yaml 与 admin.yaml；字段语义以 docs/design/04.API接口设计.md 为准。
+servers:
+  - url: /api/v1
+    description: 统一基础路径；C 端 /c，B 端 /admin
+paths: {}
+
+components:
+  securitySchemes:
+    cBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: C 端 access token；audience=c；不得用于 B 端
+    adminBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: B 端 access token；audience=admin；不得用于 C 端
+
+  parameters:
+    Page:
+      name: page
+      in: query
+      required: false
+      description: 页码，从 1 开始
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    Size:
+      name: size
+      in: query
+      required: false
+      description: 每页条数，最大 100
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      description: 不透明游标；仅操作日志使用
+      schema:
+        type: string
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: 游标分页条数，最大 100
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+
+  schemas:
+    ApiResponse:
+      type: object
+      required: [code, message, data, traceId]
+      properties:
+        code:
+          type: integer
+          description: 0 成功；非 0 见错误码表
+          example: 0
+        message:
+          type: string
+          example: ok
+        data:
+          description: 业务数据；无数据时为 null
+        traceId:
+          type: string
+          example: 4f1c2a7e9b6d4c1e
+
+    PageData:
+      type: object
+      required: [items, page, size, total, hasNext]
+      properties:
+        items:
+          type: array
+          items: {}
+        page:
+          type: integer
+          example: 1
+        size:
+          type: integer
+          example: 20
+        total:
+          type: integer
+          example: 137
+        hasNext:
+          type: boolean
+          example: true
+
+    CursorData:
+      type: object
+      required: [items, nextCursor, hasMore]
+      properties:
+        items:
+          type: array
+          items: {}
+        nextCursor:
+          type: [string, "null"]
+          example: eyJjcmVhdGVkQXQiOiIyMDI2LTEwLTMxVDA2OjMwOjAwWiIsImlkIjoxMjM0fQ
+        hasMore:
+          type: boolean
+          example: false
+
+    FieldError:
+      type: object
+      required: [field, code, message]
+      properties:
+        field:
+          type: string
+          example: phone
+        code:
+          type: string
+          enum: [REQUIRED, PATTERN, LENGTH, RANGE, ENUM, FORMAT]
+        message:
+          type: string
+          example: 手机号格式不正确
+
+    ValidationErrorData:
+      type: object
+      required: [errors]
+      properties:
+        errors:
+          type: array
+          items:
+            $ref: '#/components/schemas/FieldError'
+        truncated:
+          type: boolean
+          default: false
+
+    DegradedSection:
+      type: object
+      required: [section, code, message]
+      properties:
+        section:
+          type: string
+          example: interview
+        code:
+          type: integer
+          example: 50002
+        message:
+          type: string
+          example: 面试数据暂时不可用
+
+    # 登录/刷新响应的 token 信息。Refresh Token 不进响应体，
+    # 由服务端经 Set-Cookie 下发（C=ys_c_rt / B=ys_b_rt，HttpOnly，见 04 §4.1）。
+    AuthTokens:
+      type: object
+      required: [accessToken, accessExpiresAt, refreshExpiresAt]
+      properties:
+        accessToken:
+          type: string
+        accessExpiresAt:
+          type: string
+          format: date-time
+        refreshExpiresAt:
+          type: string
+          format: date-time
+
+    StudentSummary:
+      type: object
+      required: [studentId, nickname, phoneMasked]
+      properties:
+        studentId:
+          type: integer
+          example: 1001
+        nickname:
+          type: string
+          example: 小云
+        phoneMasked:
+          type: string
+          example: 138****8000
+        currentPathId:
+          type: [integer, "null"]
+          example: 11
+        hasPassword:
+          type: boolean
+          example: true
+
+    QuestionSummary:
+      type: object
+      required: [questionId, type, content]
+      properties:
+        questionId:
+          type: integer
+          example: 301
+        type:
+          type: string
+          enum: [TRUE_FALSE, SINGLE_CHOICE, MULTIPLE_CHOICE, SHORT_ANSWER]
+        content:
+          type: string
+        options:
+          type: array
+          items:
+            type: object
+            required: [optionId, content]
+            properties:
+              optionId:
+                type: integer
+              content:
+                type: string
+
+    JudgeResult:
+      type: object
+      required: [judgeStatus, scored, degraded]
+      properties:
+        judgeStatus:
+          type: string
+          enum: [PENDING, JUDGED, PENDING_SELF_ASSESSMENT, SELF_ASSESSED]
+        scored:
+          type: boolean
+        degraded:
+          type: boolean
+        isCorrect:
+          type: [boolean, "null"]
+        score:
+          type: [number, "null"]
+        correctOptionIds:
+          type: array
+          items:
+            type: integer
+        analysis:
+          type: [string, "null"]
+        referenceAnswer:
+          type: [string, "null"]
+        hitPoints:
+          type: array
+          items:
+            type: object
+            properties:
+              point:
+                type: string
+              hit:
+                type: boolean
+
+    PracticeSummary:
+      type: object
+      properties:
+        practiceId:
+          type: integer
+        type:
+          type: string
+          enum: [STAGE, WRONG_RETRY]
+        status:
+          type: string
+          enum: [IN_PROGRESS, FINISHED, VOIDED]
+        stageId:
+          type: [integer, "null"]
+        stageName:
+          type: [string, "null"]
+        questionCount:
+          type: integer
+        answeredCount:
+          type: integer
+        expireAt:
+          type: string
+          format: date-time
+
+    InterviewMessage:
+      type: object
+      properties:
+        messageId:
+          type: integer
+        round:
+          type: integer
+          minimum: 1
+          maximum: 4
+        role:
+          type: string
+          enum: [AI, STUDENT]
+        content:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    InterviewSessionSummary:
+      type: object
+      properties:
+        sessionId:
+          type: integer
+        subjectId:
+          type: integer
+        subjectName:
+          type: string
+        difficultyCode:
+          type: string
+          example: MEDIUM
+        difficultyName:
+          type: string
+          example: 中等
+        stageName:
+          type: string
+        status:
+          type: string
+          enum: [CREATING, IN_PROGRESS, COMPLETED, INCOMPLETE, EXPIRED, VOIDED]
+        currentRound:
+          type: integer
+        quotaDate:
+          type: string
+          format: date
+        startedAt:
+          type: string
+          format: date-time
+        finishedAt:
+          type: [string, "null"]
+          format: date-time
+        totalScore:
+          type: [number, "null"]
+        reportStatus:
+          type: [string, "null"]
+          enum: [NORMAL, INCOMPLETE, null]
+
+    # ---------- 请求体 ----------
+    SendSmsCodeRequest:
+      type: object
+      additionalProperties: false
+      required: [phone, purpose]
+      properties:
+        phone:
+          type: string
+          pattern: '^1[3-9]\d{9}$'
+          example: '13800138000'
+        purpose:
+          type: string
+          enum: [REGISTER, LOGIN, RESET_PASSWORD, CHANGE_PHONE_OLD, CHANGE_PHONE_NEW, CANCEL]
+
+    RegisterRequest:
+      type: object
+      additionalProperties: false
+      required: [phone, code, password]
+      properties:
+        phone:
+          type: string
+          pattern: '^1[3-9]\d{9}$'
+        code:
+          type: string
+          pattern: '^\d{6}$'
+        password:
+          type: string
+          minLength: 8
+          maxLength: 32
+        nickname:
+          type: string
+          minLength: 1
+          maxLength: 20
+
+    PasswordLoginRequest:
+      type: object
+      additionalProperties: false
+      required: [phone, password]
+      properties:
+        phone:
+          type: string
+          pattern: '^1[3-9]\d{9}$'
+        password:
+          type: string
+          minLength: 8
+          maxLength: 32
+
+    SmsLoginRequest:
+      type: object
+      additionalProperties: false
+      required: [phone, code]
+      properties:
+        phone:
+          type: string
+          pattern: '^1[3-9]\d{9}$'
+        code:
+          type: string
+          pattern: '^\d{6}$'
+
+    PasswordResetRequest:
+      type: object
+      additionalProperties: false
+      required: [phone, code, newPassword]
+      properties:
+        phone:
+          type: string
+          pattern: '^1[3-9]\d{9}$'
+        code:
+          type: string
+          pattern: '^\d{6}$'
+        newPassword:
+          type: string
+          minLength: 8
+          maxLength: 32
+
+    CurrentPathRequest:
+      type: object
+      additionalProperties: false
+      required: [pathId]
+      properties:
+        pathId:
+          type: integer
+          minimum: 1
+
+    WrongPracticeCreateRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        subjectId:
+          type: integer
+          minimum: 1
+        stageId:
+          type: integer
+          minimum: 1
+
+    PracticeAnswerRequest:
+      type: object
+      additionalProperties: false
+      required: [questionId]
+      properties:
+        questionId:
+          type: integer
+          minimum: 1
+        selectedOptionIds:
+          type: array
+          items:
+            type: integer
+        answerText:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        source:
+          type: string
+          enum: [TEXT, AUDIO]
+          default: TEXT
+        clientRequestId:
+          type: string
+          maxLength: 64
+
+    SelfAssessmentRequest:
+      type: object
+      additionalProperties: false
+      required: [isCorrect]
+      properties:
+        isCorrect:
+          type: boolean
+
+    InterviewCreateRequest:
+      type: object
+      additionalProperties: false
+      required: [subjectId, difficultyId]
+      properties:
+        subjectId:
+          type: integer
+        difficultyId:
+          type: integer
+
+    InterviewAnswerRequest:
+      type: object
+      additionalProperties: false
+      required: [round, answerText]
+      properties:
+        round:
+          type: integer
+          minimum: 1
+          maximum: 4
+        answerText:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        source:
+          type: string
+          enum: [TEXT, AUDIO]
+          default: TEXT
+        clientRequestId:
+          type: string
+          maxLength: 64
+
+    InterviewFinishRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        confirm:
+          type: boolean
+          default: false
+
+    UpdateProfileRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        nickname:
+          type: string
+          minLength: 1
+          maxLength: 20
+        avatarKey:
+          type: string
+          maxLength: 512
+
+    ChangePasswordRequest:
+      type: object
+      additionalProperties: false
+      required: [oldPassword, newPassword]
+      properties:
+        oldPassword:
+          type: string
+        newPassword:
+          type: string
+          minLength: 8
+          maxLength: 32
+
+    PhoneChangeRequest:
+      type: object
+      additionalProperties: false
+      required: [oldCode, newPhone, newCode]
+      properties:
+        oldCode:
+          type: string
+          pattern: '^\d{6}$'
+        newPhone:
+          type: string
+          pattern: '^1[3-9]\d{9}$'
+        newCode:
+          type: string
+          pattern: '^\d{6}$'
+
+    CancelAccountRequest:
+      type: object
+      additionalProperties: false
+      required: [code, confirmText]
+      properties:
+        code:
+          type: string
+          pattern: '^\d{6}$'
+        confirmText:
+          type: string
+          enum: [注销]
+
+    AdminLoginRequest:
+      type: object
+      additionalProperties: false
+      required: [username, password]
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+
+    SubjectCreateRequest:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 50
+        description:
+          type: string
+          maxLength: 500
+        coverKey:
+          type: string
+        sortNo:
+          type: integer
+          minimum: 0
+
+    SubjectUpdateRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 50
+        description:
+          type: string
+          maxLength: 500
+        coverKey:
+          type: string
+        sortNo:
+          type: integer
+          minimum: 0
+
+    OrderRequest:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          maxItems: 500
+          items:
+            type: object
+            required: [id, sortNo]
+            properties:
+              id:
+                type: integer
+              sortNo:
+                type: integer
+                minimum: 0
+
+    CourseCreateRequest:
+      type: object
+      additionalProperties: false
+      required: [title, subjectId, stageId, bilibiliUrl]
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 100
+        subjectId:
+          type: integer
+        stageId:
+          type: integer
+        bilibiliUrl:
+          type: string
+          format: uri
+        coverKey:
+          type: string
+        description:
+          type: string
+          maxLength: 1000
+        durationSeconds:
+          type: integer
+          minimum: 0
+        sortNo:
+          type: integer
+          minimum: 0
+
+    CourseUpdateRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 100
+        stageId:
+          type: integer
+        bilibiliUrl:
+          type: string
+          format: uri
+        coverKey:
+          type: string
+        description:
+          type: string
+          maxLength: 1000
+        durationSeconds:
+          type: integer
+          minimum: 0
+        sortNo:
+          type: integer
+          minimum: 0
+
+    QuestionOption:
+      type: object
+      additionalProperties: false
+      properties:
+        optionId:
+          type: integer
+        content:
+          type: string
+          minLength: 1
+          maxLength: 500
+        isCorrect:
+          type: boolean
+
+    ScoringPoint:
+      type: object
+      additionalProperties: false
+      required: [point]
+      properties:
+        point:
+          type: string
+          minLength: 1
+          maxLength: 500
+
+    QuestionCreateRequest:
+      type: object
+      additionalProperties: false
+      required: [type, subjectId, stageId, content]
+      properties:
+        type:
+          type: string
+          enum: [TRUE_FALSE, SINGLE_CHOICE, MULTIPLE_CHOICE, SHORT_ANSWER]
+        subjectId:
+          type: integer
+        stageId:
+          type: integer
+        content:
+          type: string
+          minLength: 1
+          maxLength: 5000
+        options:
+          type: array
+          maxItems: 8
+          items:
+            $ref: '#/components/schemas/QuestionOption'
+        scoringPoints:
+          type: array
+          items:
+            $ref: '#/components/schemas/ScoringPoint'
+        analysis:
+          type: string
+          maxLength: 5000
+
+    QuestionUpdateRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        content:
+          type: string
+          minLength: 1
+          maxLength: 5000
+        stageId:
+          type: integer
+        options:
+          type: array
+          maxItems: 8
+          items:
+            $ref: '#/components/schemas/QuestionOption'
+        scoringPoints:
+          type: array
+          items:
+            $ref: '#/components/schemas/ScoringPoint'
+        analysis:
+          type: string
+          maxLength: 5000
+
+    DifficultyUpdateRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 20
+        description:
+          type: string
+          maxLength: 500
+        focus:
+          type: string
+          maxLength: 500
+        sortNo:
+          type: integer
+          minimum: 0
+
+    DimensionCreateRequest:
+      type: object
+      additionalProperties: false
+      required: [subjectId, name]
+      properties:
+        subjectId:
+          type: integer
+        name:
+          type: string
+          minLength: 1
+          maxLength: 50
+        description:
+          type: string
+          maxLength: 500
+        sortNo:
+          type: integer
+          minimum: 0
+
+    DimensionUpdateRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 50
+        description:
+          type: string
+          maxLength: 500
+        sortNo:
+          type: integer
+          minimum: 0
+
+    DimensionOrderRequest:
+      type: object
+      additionalProperties: false
+      required: [subjectId, items]
+      properties:
+        subjectId:
+          type: integer
+        items:
+          type: array
+          maxItems: 200
+          items:
+            type: object
+            required: [id, sortNo]
+            properties:
+              id:
+                type: integer
+              sortNo:
+                type: integer
+                minimum: 0
+
+    PathCreateRequest:
+      type: object
+      additionalProperties: false
+      required: [subjectId, name]
+      properties:
+        subjectId:
+          type: integer
+        name:
+          type: string
+          minLength: 1
+          maxLength: 50
+        description:
+          type: string
+          maxLength: 500
+        sortNo:
+          type: integer
+          minimum: 0
+
+    PathUpdateRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 50
+        description:
+          type: string
+          maxLength: 500
+        sortNo:
+          type: integer
+          minimum: 0
+
+    StageCreateRequest:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 50
+        description:
+          type: string
+          maxLength: 500
+        sortNo:
+          type: integer
+          minimum: 0
+
+    StageUpdateRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 50
+        description:
+          type: string
+          maxLength: 500
+        sortNo:
+          type: integer
+          minimum: 0
+
+    StudentPathRequest:
+      type: object
+      additionalProperties: false
+      required: [pathId]
+      properties:
+        pathId:
+          type: integer
+
+    StudentCancelRequest:
+      type: object
+      additionalProperties: false
+      required: [confirmText]
+      properties:
+        confirmText:
+          type: string
+          enum: [注销]
+        reason:
+          type: string
+          maxLength: 500
+
+    AdminUserCreateRequest:
+      type: object
+      additionalProperties: false
+      required: [username, displayName, password, roleId]
+      properties:
+        username:
+          type: string
+          minLength: 4
+          maxLength: 32
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 50
+        password:
+          type: string
+          minLength: 8
+          maxLength: 32
+        roleId:
+          type: integer
+
+    AdminUserUpdateRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 50
+        roleId:
+          type: integer
+
+    RoleModulesRequest:
+      type: object
+      additionalProperties: false
+      required: [moduleCodes]
+      properties:
+        moduleCodes:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            enum: [subject, course, question, interview_settings, learning_path, student, admin_user, role, operation_log, dashboard]
+
+  responses:
+    Ok:
+      description: 成功；code=0，data 结构见具体接口
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiResponse'
+          examples:
+            success:
+              value:
+                code: 0
+                message: ok
+                data: {}
+                traceId: 4f1c2a7e9b6d4c1e
+    BadRequest:
+      description: 请求体格式错误或字段校验失败
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiResponse'
+    Unauthorized:
+      description: 未登录、token 无效/过期、audience 不匹配
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiResponse'
+    Forbidden:
+      description: 无模块权限、账号停用/注销、C 端资源归属失败
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiResponse'
+    TooManyRequests:
+      description: 限流；data 含 retryAfterSeconds/resetsAt
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiResponse'
+    BadGateway:
+      description: 外部依赖失败（短信/OSS/面试开场）
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiResponse'
+    ServerError:
+      description: 未处理系统异常
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiResponse'

@@ -1,0 +1,746 @@
+openapi: 3.1.0
+info:
+  title: 云枢智学 · C 端 API
+  version: 1.0.0
+  description: |
+    C 端 9 组 42 个操作。统一响应、分页、错误与鉴权见 common.yaml；
+    字段语义与错误码见 docs/design/04.API接口设计.md。
+servers:
+  - url: /api/v1
+    description: C 端基础路径
+security:
+  - cBearer: []
+tags:
+  - name: C-01
+    description: 账号与认证
+  - name: C-02
+    description: 首页
+  - name: C-03
+    description: 学习路线
+  - name: C-04
+    description: 课程与进度
+  - name: C-05
+    description: 阶段练习
+  - name: C-06
+    description: 错题本
+  - name: C-07
+    description: AI 语音面试
+  - name: C-08
+    description: 学习与面试记录
+  - name: C-09
+    description: 个人中心
+
+paths:
+  /c/auth/sms-codes:
+    post:
+      tags: [C-01]
+      summary: 发送短信验证码
+      operationId: sendSmsCode
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './common.yaml#/components/schemas/SendSmsCodeRequest'
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
+        '502':
+          $ref: './common.yaml#/components/responses/BadGateway'
+
+  /c/auth/register:
+    post:
+      tags: [C-01]
+      summary: 手机号注册
+      operationId: register
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './common.yaml#/components/schemas/RegisterRequest'
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /c/auth/login/password:
+    post:
+      tags: [C-01]
+      summary: 密码登录
+      operationId: loginByPassword
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './common.yaml#/components/schemas/PasswordLoginRequest'
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /c/auth/login/sms:
+    post:
+      tags: [C-01]
+      summary: 验证码登录
+      operationId: loginBySms
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './common.yaml#/components/schemas/SmsLoginRequest'
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /c/auth/password/reset:
+    post:
+      tags: [C-01]
+      summary: 找回/重置密码
+      operationId: resetPassword
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './common.yaml#/components/schemas/PasswordResetRequest'
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /c/auth/token/refresh:
+    post:
+      tags: [C-01]
+      summary: 刷新 C 端 access token
+      description: >-
+        无请求体。从 HttpOnly Cookie ys_c_rt 读取 refresh，轮换后重发 Set-Cookie；
+        20008/20009 失败时由服务端清除 Cookie。CSRF 说明见 02 §2.6。
+      operationId: refreshCToken
+      security: []
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+
+  /c/auth/logout:
+    post:
+      tags: [C-01]
+      summary: 退出登录
+      description: 无请求体。撤销 Cookie 中的 refresh 并下发 Set-Cookie（Max-Age=0）清除；幂等。
+      operationId: logoutC
+      security: []
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /c/home:
+    get:
+      tags: [C-02]
+      summary: 首页聚合数据
+      operationId: getHome
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /c/learning-paths:
+    get:
+      tags: [C-03]
+      summary: 学习路线列表
+      operationId: listLearningPaths
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /c/learning-paths/{pathId}:
+    get:
+      tags: [C-03]
+      summary: 学习路线详情
+      operationId: getLearningPath
+      parameters:
+        - name: pathId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /c/students/me/current-path:
+    put:
+      tags: [C-03]
+      summary: 设置/切换主路线
+      operationId: setCurrentPath
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './common.yaml#/components/schemas/CurrentPathRequest'
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /c/stages/{stageId}:
+    get:
+      tags: [C-04]
+      summary: 阶段详情、课程与进度
+      operationId: getStage
+      parameters:
+        - name: stageId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /c/courses/{courseId}/start:
+    post:
+      tags: [C-04]
+      summary: 开始学习课程
+      operationId: startCourse
+      parameters:
+        - name: courseId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /c/courses/{courseId}/complete:
+    post:
+      tags: [C-04]
+      summary: 标记课程完成
+      operationId: completeCourse
+      parameters:
+        - name: courseId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /c/stages/{stageId}/practices:
+    post:
+      tags: [C-05]
+      summary: 创建阶段练习
+      operationId: createStagePractice
+      parameters:
+        - name: stageId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /c/practices/wrong-questions:
+    post:
+      tags: [C-05, C-06]
+      summary: 创建错题重练
+      operationId: createWrongQuestionPractice
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: './common.yaml#/components/schemas/WrongPracticeCreateRequest'
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /c/practices/{practiceId}:
+    get:
+      tags: [C-05]
+      summary: 练习详情与断点续答
+      operationId: getPractice
+      parameters:
+        - name: practiceId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /c/practices/{practiceId}/answers:
+    post:
+      tags: [C-05]
+      summary: 提交单题作答并判分
+      operationId: submitPracticeAnswer
+      parameters:
+        - name: practiceId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './common.yaml#/components/schemas/PracticeAnswerRequest'
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /c/practices/{practiceId}/answers/{questionId}/self-assessment:
+    post:
+      tags: [C-05]
+      summary: 简答降级后的学员自评
+      operationId: selfAssessPracticeAnswer
+      parameters:
+        - name: practiceId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: questionId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './common.yaml#/components/schemas/SelfAssessmentRequest'
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /c/practices/{practiceId}/submit:
+    post:
+      tags: [C-05]
+      summary: 提交/结束练习
+      operationId: submitPractice
+      parameters:
+        - name: practiceId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /c/practices/{practiceId}/result:
+    get:
+      tags: [C-05]
+      summary: 练习结果
+      operationId: getPracticeResult
+      parameters:
+        - name: practiceId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /c/wrong-questions:
+    get:
+      tags: [C-06]
+      summary: 错题列表
+      operationId: listWrongQuestions
+      parameters:
+        - $ref: './common.yaml#/components/parameters/Page'
+        - $ref: './common.yaml#/components/parameters/Size'
+        - name: subjectId
+          in: query
+          schema:
+            type: integer
+        - name: stageId
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /c/wrong-questions/{questionId}:
+    get:
+      tags: [C-06]
+      summary: 错题详情
+      operationId: getWrongQuestion
+      parameters:
+        - name: questionId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /c/interview-options:
+    get:
+      tags: [C-07]
+      summary: 面试学科、难度与可用性
+      operationId: getInterviewOptions
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /c/interview-quota:
+    get:
+      tags: [C-07]
+      summary: 今日面试余量
+      operationId: getInterviewQuota
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /c/interview-sessions:
+    get:
+      tags: [C-07]
+      summary: 面试历史列表
+      operationId: listInterviewSessions
+      parameters:
+        - $ref: './common.yaml#/components/parameters/Page'
+        - $ref: './common.yaml#/components/parameters/Size'
+        - name: subjectId
+          in: query
+          schema:
+            type: integer
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [IN_PROGRESS, COMPLETED, INCOMPLETE, EXPIRED, VOIDED]
+        - name: startDate
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: endDate
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+    post:
+      tags: [C-07]
+      summary: 创建面试并返回开场题
+      operationId: createInterviewSession
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            minLength: 8
+            maxLength: 64
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './common.yaml#/components/schemas/InterviewCreateRequest'
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+        '502':
+          $ref: './common.yaml#/components/responses/BadGateway'
+
+  /c/interview-sessions/{sessionId}:
+    get:
+      tags: [C-07]
+      summary: 面试会话详情与续答
+      operationId: getInterviewSession
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /c/interview-sessions/{sessionId}/answers:
+    post:
+      tags: [C-07]
+      summary: 提交一轮文字回答
+      operationId: submitInterviewAnswer
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './common.yaml#/components/schemas/InterviewAnswerRequest'
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /c/interview-sessions/{sessionId}/answers/audio:
+    post:
+      tags: [C-07]
+      summary: 语音转写（不落盘、不推进轮次）
+      operationId: transcribeInterviewAudio
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [audio, round]
+              properties:
+                audio:
+                  type: string
+                  format: binary
+                round:
+                  type: integer
+                  minimum: 1
+                  maximum: 4
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /c/interview-sessions/{sessionId}/finish:
+    post:
+      tags: [C-07]
+      summary: 提前结束面试
+      operationId: finishInterviewSession
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: './common.yaml#/components/schemas/InterviewFinishRequest'
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /c/interview-sessions/{sessionId}/report:
+    get:
+      tags: [C-07]
+      summary: 面试报告
+      operationId: getInterviewReport
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /c/records/courses:
+    get:
+      tags: [C-08]
+      summary: 课程完成记录
+      operationId: listCourseRecords
+      parameters:
+        - $ref: './common.yaml#/components/parameters/Page'
+        - $ref: './common.yaml#/components/parameters/Size'
+        - name: subjectId
+          in: query
+          schema:
+            type: integer
+        - name: stageId
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /c/records/practices:
+    get:
+      tags: [C-08]
+      summary: 练习记录
+      operationId: listPracticeRecords
+      parameters:
+        - $ref: './common.yaml#/components/parameters/Page'
+        - $ref: './common.yaml#/components/parameters/Size'
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [STAGE, WRONG_RETRY]
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [IN_PROGRESS, FINISHED, VOIDED]
+        - name: subjectId
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /c/records/mastery-trend:
+    get:
+      tags: [C-08]
+      summary: 阶段掌握度趋势
+      operationId: getMasteryTrend
+      parameters:
+        - name: stageId
+          in: query
+          required: true
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /c/interview-sessions/compare:
+    get:
+      tags: [C-08]
+      summary: 两次面试报告对比
+      operationId: compareInterviewSessions
+      parameters:
+        - name: baseSessionId
+          in: query
+          required: true
+          schema:
+            type: integer
+        - name: targetSessionId
+          in: query
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /c/students/me:
+    get:
+      tags: [C-09]
+      summary: 个人资料
+      operationId: getMyProfile
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+    patch:
+      tags: [C-09]
+      summary: 修改昵称/头像
+      operationId: updateMyProfile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './common.yaml#/components/schemas/UpdateProfileRequest'
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /c/students/me/password:
+    put:
+      tags: [C-09]
+      summary: 修改密码
+      operationId: changeMyPassword
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './common.yaml#/components/schemas/ChangePasswordRequest'
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /c/students/me/phone-change:
+    post:
+      tags: [C-09]
+      summary: 换绑手机号
+      operationId: changeMyPhone
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './common.yaml#/components/schemas/PhoneChangeRequest'
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /c/students/me/cancel:
+    post:
+      tags: [C-09]
+      summary: 注销账号
+      operationId: cancelMyAccount
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './common.yaml#/components/schemas/CancelAccountRequest'
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /c/uploads/images:
+    post:
+      tags: [C-09]
+      summary: 上传头像等图片
+      operationId: uploadCImage
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, purpose]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                purpose:
+                  type: string
+                  enum: [AVATAR]
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+        '502':
+          $ref: './common.yaml#/components/responses/BadGateway'

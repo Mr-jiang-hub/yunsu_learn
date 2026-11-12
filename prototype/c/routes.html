@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>学习路线 · 云枢智学</title>
+<link rel="stylesheet" href="../assets/css/app.css">
+</head>
+<body>
+<div id="app-header"></div>
+<main class="container page" id="app"></main>
+
+<script src="../assets/js/data.js"></script>
+<script src="../assets/js/ui.js"></script>
+<script src="../assets/js/c-shared.js"></script>
+<script>
+(function () {
+  var user = C.init('routes');
+  if (!user) return;
+  var app = document.getElementById('app');
+  var routes = DATA.content().routes;
+  var current = C.route();
+
+  var totalStages = 0, totalCourses = 0, totalQuestions = 0;
+  routes.forEach(function (r) {
+    r.stages.forEach(function (s) {
+      totalStages++;
+      totalCourses += s.courses.length;
+      totalQuestions += s.questions.length;
+    });
+  });
+
+  function card(r) {
+    var s = DATA.content().subjects.find(function (x) { return x.id === r.subjectId; });
+    var joined = user.mainRoute === r.id;
+    var stats = C.routeStats(r.id);
+    var courses = r.stages.reduce(function (n, st) { return n + st.courses.length; }, 0);
+    var questions = r.stages.reduce(function (n, st) { return n + st.questions.length; }, 0);
+    var hasProgress = stats.done > 0;
+
+    return '<div class="route-card">' +
+      '<div class="route-cover" style="background:' + C.gradient(s) + '">' +
+        '<div class="between"><div class="rc-ic">' + UI.icon(s.icon, 21) + '</div>' +
+          (joined ? '<span class="tag" style="background:rgba(255,255,255,.24);color:#fff">' + UI.icon('check', 12) + '当前主路线</span>'
+                  : '<span class="tag" style="background:rgba(255,255,255,.2);color:#fff">' + UI.esc(s.badge) + '</span>') + '</div>' +
+        '<div><h3>' + UI.esc(s.name) + '</h3><p>' + UI.esc(s.tagline) + '</p></div>' +
+      '</div>' +
+      '<div class="route-body">' +
+        '<div class="route-stats">' +
+          '<div><b>' + r.stages.length + '</b>阶段</div>' +
+          '<div><b>' + courses + '</b>课程</div>' +
+          '<div><b>' + questions + '</b>题目</div>' +
+        '</div>' +
+        (hasProgress ?
+          '<div><div class="between small muted" style="margin-bottom:5px"><span>已学进度</span><span class="mono">' + stats.done + '/' + stats.total + ' · ' + stats.pct + '%</span></div>' +
+          UI.progressHtml(stats.pct, 'sm') + '</div>'
+          : '<div class="small muted">' + UI.esc(s.desc) + '</div>') +
+        '<div class="route-foot">' +
+          '<a class="btn btn-sm btn-ghost" href="' + C.routeHref(r.id) + '">查看路线</a>' +
+          (joined
+            ? '<button class="btn btn-sm btn-primary" data-go="' + r.id + '">继续学习' + UI.icon('arrowRight', 13) + '</button>'
+            : '<button class="btn btn-sm ' + (hasProgress ? 'btn-soft' : 'btn-primary') + '" data-join="' + r.id + '">' + (hasProgress ? '切回此路线' : '加入路线') + '</button>') +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  }
+
+  var curNext = current ? C.nextCourse(current.id) : null;
+  var curStage = current ? (curNext ? curNext.stage : C.currentStage(current)) : null;
+  var curHref = curStage ? C.stageHref(curStage.id) : (current ? C.routeHref(current.id) : 'routes.html');
+
+  app.innerHTML =
+    '<div class="page-head"><div><div class="page-title">学习路线</div>' +
+      '<div class="page-sub">3 个方向 · ' + totalStages + ' 个阶段 · ' + totalCourses + ' 门课程 · ' + totalQuestions + ' 道题。同一时间只有一条主路线，切换后原进度会保留。</div></div>' +
+      (current ? '<a class="btn btn-ghost" href="' + C.routeHref(current.id) + '">' + UI.icon('map', 15) + '查看当前路线</a>' : '') +
+    '</div>' +
+
+    (current ? '<div class="card card-pad mb-20" style="display:flex;align-items:center;gap:18px;flex-wrap:wrap">' +
+      '<div class="tool-ic ic-brand" style="width:44px;height:44px;border-radius:13px">' + UI.icon('target', 22) + '</div>' +
+      '<div class="flex-1"><div class="semibold">当前主路线：' + UI.esc(C.subject(current).name) + '</div>' +
+        '<div class="small muted">已完成 ' + C.routeStats(current.id).done + ' / ' + C.routeStats(current.id).total + ' 门课程 · 进度 ' + C.routeStats(current.id).pct + '%</div></div>' +
+      '<a class="btn btn-primary btn-sm" href="' + curHref + '">' + UI.icon('play', 14) + '继续学习</a>' +
+    '</div>' : '') +
+
+    '<div class="grid g3">' + routes.map(card).join('') + '</div>' +
+
+    '<div class="card card-pad mt-24" style="background:#FAFBFF">' +
+      '<div class="row" style="align-items:flex-start">' +
+        '<div class="tool-ic ic-blue" style="width:34px;height:34px;border-radius:10px">' + UI.icon('info', 17) + '</div>' +
+        '<div class="small muted" style="line-height:1.8">' +
+          '<b style="color:var(--ink-2)">关于路线切换</b><br>' +
+          '阶段按推荐顺序排列，但不会锁定——你可以直接进入任意阶段学习。<br>' +
+          '切换主路线不会清空已学记录，切回后进度仍在。' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+
+  app.addEventListener('click', function (e) {
+    var go = e.target.closest('[data-go]');
+    if (go) { location.href = C.routeHref(go.getAttribute('data-go')); return; }
+
+    var btn = e.target.closest('[data-join]');
+    if (!btn) return;
+    var rid = btn.getAttribute('data-join');
+    var r = DATA.findRoute(rid);
+    var s = DATA.content().subjects.find(function (x) { return x.id === r.subjectId; });
+    var stats = C.routeStats(rid);
+    var msg = current
+      ? '切换后，首页、刷题入口都会指向「' + s.name + '」。你原路线已完成的 ' + C.routeStats(current.id).done + ' 门课程会保留，随时可以切回。'
+      : '加入后，首页会显示这条路线和阶段进度，之后可以随时切换。';
+    if (stats.done > 0) msg += ' 该路线你已学过 ' + stats.done + ' 门课程，进度会直接延续。';
+
+    UI.confirm('切换主路线', msg, function () {
+      user.mainRoute = rid;
+      Store.set('user', user);
+      UI.toast('已切换到「' + s.name + '」');
+      setTimeout(function () { location.reload(); }, 350);
+    }, '确认切换');
+  });
+})();
+</script>
+</body>
+</html>

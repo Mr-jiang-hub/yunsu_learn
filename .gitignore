@@ -1,0 +1,27 @@
+# ---- 环境与密钥 ----
+.env
+.env.*
+!.env.example
+
+# ---- 后端 ----
+backend/target/
+*.class
+*.log
+hs_err_pid*
+replay_pid*
+
+# ---- 前端 ----
+# node_modules 任意层级都忽略（web/、web/apps/*/、web/packages/*/ 全都覆盖）
+node_modules/
+web/apps/*/dist/
+web/packages/*/dist/
+*.tsbuildinfo
+
+# ---- IDE ----
+.idea/
+.vscode/
+*.iml
+
+# ---- 操作系统 ----
+.DS_Store
+Thumbs.db

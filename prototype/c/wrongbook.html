@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>错题本 · 云枢智学</title>
+<link rel="stylesheet" href="../assets/css/app.css">
+</head>
+<body>
+<div id="app-header"></div>
+<main class="container page" id="app"></main>
+
+<script src="../assets/js/data.js"></script>
+<script src="../assets/js/ui.js"></script>
+<script src="../assets/js/c-shared.js"></script>
+<script>
+(function () {
+  var user = C.init('home');
+  if (!user) return;
+  var app = document.getElementById('app');
+  var stageFilter = 'all';
+
+  function allItems() {
+    return C.wrongList().sort(function (a, b) {
+      return (b.meta.addedAt || '').localeCompare(a.meta.addedAt || '');
+    });
+  }
+
+  function render() {
+    var all = allItems();
+    var stages = [];
+    all.forEach(function (x) {
+      if (!stages.some(function (s) { return s.id === x.stage.id; })) stages.push(x.stage);
+    });
+    if (stageFilter !== 'all' && !stages.some(function (s) { return s.id === stageFilter; })) stageFilter = 'all';
+    var items = stageFilter === 'all' ? all : all.filter(function (x) { return x.stage.id === stageFilter; });
+
+    var shortCount = all.filter(function (x) { return x.q.type === 'short'; }).length;
+    var choiceCount = all.length - shortCount;
+
+    var chips = '<div class="filter-chips">' +
+      '<button class="chip ' + (stageFilter === 'all' ? 'active' : '') + '" data-filter="all">全部 · ' + all.length + '</button>' +
+      stages.map(function (st) {
+        var n = all.filter(function (x) { return x.stage.id === st.id; }).length;
+        return '<button class="chip ' + (stageFilter === st.id ? 'active' : '') + '" data-filter="' + st.id + '">' + UI.esc(st.name) + ' · ' + n + '</button>';
+      }).join('') +
+    '</div>';
+
+    var list;
+    if (!all.length) {
+      list = '<div class="card">' + UI.emptyHtml('错题本是空的', '在阶段练习中答错的题会自动收进这里；重新答对一次后自动移除。', 'book') +
+        '<div class="center" style="padding-bottom:30px"><a class="btn btn-primary" href="quiz.html">去刷题</a></div></div>';
+    } else if (!items.length) {
+      list = '<div class="card">' + UI.emptyHtml('这个阶段没有错题', '切换到其他阶段看看吧', 'check') + '</div>';
+    } else {
+      list = items.map(function (it) {
+        var q = it.q, meta = it.meta;
+        var answer = q.type === 'short' ? (q.reference || '见解析') : C.answerText(q, q.answer);
+        var mine = meta.ans != null && meta.ans !== '' ? C.answerText(q, meta.ans) : '未记录';
+        return '<div class="wrong-item">' +
+          '<div class="between mb-8" style="align-items:flex-start">' +
+            '<div class="row gap-8 wrap"><span class="tag tag-brand">' + UI.typeLabel(q.type) + '</span>' +
+              '<span class="small muted">' + UI.esc(it.stage.name) + '</span></div>' +
+            '<span class="tiny muted">加入于 ' + UI.fmtDate(meta.addedAt) + '</span>' +
+          '</div>' +
+          '<div class="q-stem">' + UI.esc(q.stem) + '</div>' +
+          '<div class="answer-line"><span class="lb">上次作答</span><span class="my">' + UI.esc(mine) + '</span></div>' +
+          '<div class="answer-line"><span class="lb">正确答案</span><span class="right">' + UI.esc(answer) + '</span></div>' +
+          (q.explanation ? '<div class="explain"><b>解析：</b>' + UI.esc(q.explanation) + '</div>' : '') +
+          '<div class="row mt-12" style="justify-content:space-between;gap:10px;flex-wrap:wrap">' +
+            '<span class="tiny muted">重新做对一次，本题会自动移出错题本</span>' +
+            '<button class="btn btn-sm btn-soft" data-practice="' + q.id + '">' + UI.icon('refresh', 13) + '重新练习</button>' +
+          '</div>' +
+        '</div>';
+      }).join('');
+    }
+
+    app.innerHTML =
+      '<div class="page-head"><div><div class="page-title">错题本</div>' +
+        '<div class="page-sub">全部题型的错题都会收进来，答对一次即自动移除。</div></div>' +
+        '<a class="btn btn-ghost" href="quiz.html">' + UI.icon('edit', 15) + '去刷题</a></div>' +
+
+      '<div class="grid g3 mb-20">' +
+        '<div class="stat-card"><div class="lb">' + UI.icon('book', 14) + '待复习</div><div class="val">' + all.length + '<small>道</small></div></div>' +
+        '<div class="stat-card"><div class="lb">' + UI.icon('edit', 14) + '选择类</div><div class="val">' + choiceCount + '<small>道</small></div></div>' +
+        '<div class="stat-card"><div class="lb">' + UI.icon('message', 14) + '简答类</div><div class="val">' + shortCount + '<small>道</small></div></div>' +
+      '</div>' +
+
+      chips +
+      '<div id="wrongList">' + list + '</div>' +
+      '<div class="small muted mt-20">' +
+        UI.icon('info', 13) + ' 错题重练单独记录，不计入阶段完成度，也不会改变阶段掌握度。' +
+      '</div>';
+  }
+
+  /* ---------------- 重新练习 ---------------- */
+  function practice(qid) {
+    var f = DATA.findQuestion(qid);
+    if (!f) return;
+    var q = f.question;
+    var sel = [];
+    var submitted = false;
+
+    var body =
+      '<div class="between mb-12"><span class="tag tag-brand">' + UI.typeLabel(q.type) + '</span>' +
+        '<span class="tiny muted">' + UI.esc(f.stage.name) + '</span></div>' +
+      '<div class="q-stem" style="font-size:16px;margin-bottom:16px">' + UI.esc(q.stem) + '</div>' +
+      '<div id="rvOpts">' + (q.type === 'short'
+        ? '<textarea class="textarea" id="rvText" placeholder="重新作答一次…" style="min-height:110px"></textarea>'
+        : q.options.map(function (o, i) {
+            return '<button class="opt" data-rv-opt="' + i + '"><span class="k">' + String.fromCharCode(65 + i) + '</span><span>' + UI.esc(o) + '</span></button>';
+          }).join('')) +
+      '</div>' +
+      '<div id="rvFb"></div>' +
+      '<button class="btn btn-primary btn-block mt-12" data-rv-submit disabled>提交答案</button>';
+
+    var m = UI.modal({
+      title: '错题重练',
+      subtitle: '答对后本题将从错题本移除',
+      body: body,
+      actions: [{ label: '关闭', cls: 'btn-ghost' }]
+    });
+    var ov = m.el;
+
+    if (q.type === 'short') {
+      var ta = ov.querySelector('#rvText');
+      var sb = ov.querySelector('[data-rv-submit]');
+      ta.addEventListener('input', function () {
+        sb.disabled = !ta.value.trim();
+      });
+    }
+
+    ov.addEventListener('click', function (e) {
+      var opt = e.target.closest('[data-rv-opt]');
+      if (opt && !submitted) {
+        var i = Number(opt.getAttribute('data-rv-opt'));
+        if (q.type === 'multi') {
+          var p = sel.indexOf(i);
+          if (p >= 0) sel.splice(p, 1); else sel.push(i);
+        } else sel = [i];
+        Array.prototype.forEach.call(ov.querySelectorAll('[data-rv-opt]'), function (b) {
+          b.classList.toggle('sel', sel.indexOf(Number(b.getAttribute('data-rv-opt'))) >= 0);
+        });
+        ov.querySelector('[data-rv-submit]').disabled = sel.length === 0;
+        return;
+      }
+      if (!e.target.closest('[data-rv-submit]') || submitted) return;
+
+      var ans = q.type === 'short' ? ov.querySelector('#rvText').value.trim() : sel.slice();
+      if (q.type === 'short' && !ans) return;
+      submitted = true;
+      var sb = ov.querySelector('[data-rv-submit]');
+      sb.disabled = true;
+
+      var fb = ov.querySelector('#rvFb');
+      if (q.type === 'short') {
+        sb.innerHTML = '<span class="spinner" style="border-color:rgba(255,255,255,.4);border-top-color:#fff"></span> AI 批改中…';
+        setTimeout(function () { showResult(C.judge(q, ans), ans); }, 1000);
+      } else {
+        showResult(C.judge(q, ans), ans);
+      }
+
+      function showResult(res, ans) {
+        sb.classList.add('hide');
+        // 标记选项
+        if (q.type !== 'short') {
+          Array.prototype.forEach.call(ov.querySelectorAll('[data-rv-opt]'), function (b) {
+            var i = Number(b.getAttribute('data-rv-opt'));
+            b.setAttribute('disabled', '');
+            b.classList.remove('sel');
+            if ((q.answer || []).indexOf(i) >= 0) b.classList.add('correct');
+            else if ((ans || []).indexOf(i) >= 0) b.classList.add('wrong');
+            else b.classList.add('dim');
+          });
+        }
+        var correctTxt = q.type === 'short' ? (q.reference || '') : C.answerText(q, q.answer);
+        fb.innerHTML = '<div class="feedback ' + (res.correct ? 'ok' : 'bad') + '">' +
+          '<div class="fb-head">' + (res.correct ? UI.icon('check', 15) + '回答正确，已移出错题本' : UI.icon('x', 15) + '还是答错了，继续保留') + '</div>' +
+          '<div class="fb-body">' +
+            (q.type === 'short' ? 'AI 得分：<b>' + res.score + '</b> 分（≥ 60 记为正确）<br>' : '<b>正确答案：</b>' + UI.esc(correctTxt) + '<br>') +
+            (q.explanation ? UI.esc(q.explanation) : '') +
+          '</div>' +
+        '</div>';
+
+        if (res.correct) {
+          C.removeWrong(q.id);
+          UI.toast('答对了，已从错题本移除');
+          setTimeout(function () { m.close(); render(); }, 900);
+        }
+      }
+    });
+  }
+
+  render();
+  app.style.paddingBottom = '60px';
+
+  app.addEventListener('click', function (e) {
+    var f = e.target.closest('[data-filter]');
+    if (f) { stageFilter = f.getAttribute('data-filter'); render(); return; }
+    var p = e.target.closest('[data-practice]');
+    if (p) practice(p.getAttribute('data-practice'));
+  });
+})();
+</script>
+</body>
+</html>

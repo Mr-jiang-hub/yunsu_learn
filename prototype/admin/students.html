@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>学员管理 · 云枢智学运营台</title>
+<link rel="stylesheet" href="../assets/css/app.css">
+</head>
+<body class="admin-body">
+<div class="shell">
+  <aside class="sidebar" id="app-side"></aside>
+  <div class="main">
+    <header class="topbar" id="app-top"></header>
+    <main class="admin-page" id="app"></main>
+  </div>
+</div>
+
+<script src="../assets/js/data.js"></script>
+<script src="../assets/js/ui.js"></script>
+<script src="../assets/js/admin-shared.js"></script>
+<script>
+(function () {
+  var A = AdminApp;
+  A.renderShell('students', '学员管理', '重置密码、调整路线、禁用或注销账号');
+  var app = document.getElementById('app');
+  var kw = '';
+  var routeFilter = 'all';
+  var statusFilter = 'all';
+  var page = 1;
+  var PAGE_SIZE = 10;
+
+  function d() { return A.data(); }
+  function save() { A.save(d()); }
+
+  function filtered() {
+    return d().students.filter(function (s) {
+      var okKw = !kw || s.name.indexOf(kw) >= 0 || String(s.phone).indexOf(kw) >= 0;
+      var okR = routeFilter === 'all' || s.routeId === routeFilter;
+      var okS = statusFilter === 'all' || s.status === statusFilter;
+      return okKw && okR && okS;
+    });
+  }
+
+  function statusTag(s) {
+    return s === '正常' ? 'tag-green' : s === '禁用' ? 'tag-red' : 'tag';
+  }
+
+  function render() {
+    var all = d().students;
+    var list = filtered();
+    var pages = Math.max(1, Math.ceil(list.length / PAGE_SIZE));
+    if (page > pages) page = pages;
+    var rows = list.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+    app.innerHTML =
+      '<div class="between wrap mb-16"><div><div class="admin-title">学员管理</div>' +
+        '<div class="admin-sub">注销后保留学习行为记录，但姓名与手机号会被脱敏。</div></div>' +
+        '<span class="small muted">' + UI.icon('refresh', 13) + ' 数据为本地演示数据</span></div>' +
+
+      '<div class="kpi" style="grid-template-columns:repeat(4,1fr)">' +
+        '<div class="kpi-card"><div class="lb">学员总数</div><div class="val">' + all.filter(function (s) { return s.status !== '注销'; }).length + '</div></div>' +
+        '<div class="kpi-card"><div class="lb">正常</div><div class="val">' + all.filter(function (s) { return s.status === '正常'; }).length + '</div></div>' +
+        '<div class="kpi-card"><div class="lb">已禁用</div><div class="val">' + all.filter(function (s) { return s.status === '禁用'; }).length + '</div></div>' +
+        '<div class="kpi-card"><div class="lb">今日活跃</div><div class="val">' + all.filter(function (s) { return s.lastActive === '今天' && s.status !== '注销'; }).length + '</div></div>' +
+      '</div>' +
+
+      '<div class="toolbar">' +
+        '<div class="search">' + UI.icon('search', 15) + '<input class="input" id="stuKw" placeholder="搜索姓名 / 手机号" value="' + UI.esc(kw) + '"></div>' +
+        '<select class="select" id="stuRoute"><option value="all">全部路线</option>' + d().routes.map(function (r) {
+          var s = d().subjects.find(function (x) { return x.id === r.subjectId; });
+          return '<option value="' + r.id + '" ' + (routeFilter === r.id ? 'selected' : '') + '>' + UI.esc(s ? s.name : r.name) + '</option>';
+        }).join('') + '</select>' +
+        '<select class="select" id="stuStatus">' +
+          ['all', '正常', '禁用', '注销'].map(function (st) {
+            return '<option value="' + st + '" ' + (statusFilter === st ? 'selected' : '') + '>' + (st === 'all' ? '全部状态' : st) + '</option>';
+          }).join('') + '</select>' +
+        '<div style="flex:1"></div>' +
+        '<span class="small muted">筛选结果 ' + list.length + ' 人</span>' +
+      '</div>' +
+
+      '<div class="table-wrap"><table class="table" style="min-width:960px"><thead><tr>' +
+        '<th>学员</th><th>主路线</th><th>学习进度</th><th>状态</th><th>加入时间</th><th>最近活跃</th><th style="text-align:right">操作</th></tr></thead><tbody>' +
+        (rows.length ? rows.map(function (s) {
+          var disabled = s.status === '注销';
+          return '<tr>' +
+            '<td><div class="td-main">' + UI.avatarHtml(s.name, 'sm') +
+              '<div><div class="td-title">' + UI.esc(s.name) + '</div><div class="td-sub mono">' + UI.esc(s.phone) + '</div></div></div></td>' +
+            '<td class="small">' + UI.esc(A.routeName(s.routeId)) + '</td>' +
+            '<td style="min-width:120px"><div class="row gap-8"><span class="progress sm" style="flex:1"><i style="width:' + s.progress + '%"></i></span>' +
+              '<span class="small mono">' + s.progress + '%</span></div></td>' +
+            '<td><span class="tag ' + statusTag(s.status) + '">' + s.status + '</span></td>' +
+            '<td class="small muted">' + UI.esc(s.joinedAt) + '</td>' +
+            '<td class="small muted">' + UI.esc(s.lastActive) + '</td>' +
+            '<td><div class="actions">' +
+              '<button class="btn btn-sm btn-ghost" data-detail="' + s.id + '">详情</button>' +
+              (disabled ? '<span class="small muted" style="padding:0 6px">已注销</span>' :
+                '<button class="btn btn-sm btn-ghost" data-reset="' + s.id + '">重置密码</button>' +
+                '<button class="btn btn-sm btn-ghost" data-route="' + s.id + '">改路线</button>' +
+                '<button class="btn btn-sm btn-ghost" data-toggle="' + s.id + '">' + (s.status === '禁用' ? '启用' : '禁用') + '</button>' +
+                '<button class="btn btn-sm btn-ghost" style="color:var(--red)" data-delete="' + s.id + '">注销</button>') +
+            '</div></td></tr>';
+        }).join('') : '<tr><td colspan="7"><div class="empty" style="padding:34px">没有匹配的学员</div></td></tr>') +
+      '</tbody></table></div>' +
+
+      '<div class="pager"><span>共 ' + list.length + ' 条 · 第 ' + page + ' / ' + pages + ' 页</span>' +
+        '<div class="pages">' +
+          '<button class="pg" data-page="' + (page - 1) + '" ' + (page === 1 ? 'disabled' : '') + '>上一页</button>' +
+          Array.from({ length: pages }).map(function (_, i) {
+            return '<button class="pg ' + (page === i + 1 ? 'active' : '') + '" data-page="' + (i + 1) + '">' + (i + 1) + '</button>';
+          }).join('') +
+          '<button class="pg" data-page="' + (page + 1) + '" ' + (page === pages ? 'disabled' : '') + '>下一页</button>' +
+        '</div>' +
+      '</div>';
+  }
+
+  function detail(id) {
+    var s = d().students.find(function (x) { return x.id === id; });
+    if (!s) return;
+    var rt = d().routes.find(function (r) { return r.id === s.routeId; });
+    var totalCourses = rt ? rt.stages.reduce(function (n, st) { return n + st.courses.length; }, 0) : 0;
+    var done = Math.round(s.progress / 100 * totalCourses);
+    UI.modal({
+      title: '学员详情',
+      subtitle: s.id,
+      body:
+        '<div class="row gap-12 mb-16">' + UI.avatarHtml(s.name, 'lg') +
+          '<div><div style="font-size:16px;font-weight:700">' + UI.esc(s.name) + '</div>' +
+            '<div class="small muted mono">' + UI.esc(s.phone) + '</div>' +
+            '<div class="row gap-8 mt-8"><span class="tag ' + statusTag(s.status) + '">' + s.status + '</span>' +
+              '<span class="tag">' + UI.esc(s.joinedAt) + ' 加入</span></div></div></div>' +
+        '<div class="grid g2" style="gap:12px">' +
+          '<div class="rs-item"><b>' + UI.esc(A.routeName(s.routeId)) + '</b><span>主学习路线</span></div>' +
+          '<div class="rs-item"><b>' + s.progress + '%</b><span>课程完成度</span></div>' +
+          '<div class="rs-item"><b>' + done + ' / ' + totalCourses + '</b><span>已完成课程（按进度估算）</span></div>' +
+          '<div class="rs-item"><b>' + UI.esc(s.lastActive) + '</b><span>最近活跃</span></div>' +
+        '</div>' +
+        '<div class="hint mt-12">注销账号后，姓名与手机号会被脱敏，学习与面试行为记录保留用于统计。</div>',
+      actions: [{ label: '关闭', cls: 'btn-ghost' }]
+    });
+  }
+
+  function changeRoute(id) {
+    var s = d().students.find(function (x) { return x.id === id; });
+    if (!s) return;
+    UI.modal({
+      title: '修改主路线',
+      subtitle: s.name + ' · 当前：' + A.routeName(s.routeId),
+      body:
+        '<div class="field"><label>新的主路线</label><select class="select" id="chRoute">' +
+          d().routes.map(function (r) {
+            var sub = d().subjects.find(function (x) { return x.id === r.subjectId; });
+            return '<option value="' + r.id + '" ' + (r.id === s.routeId ? 'selected' : '') + '>' + UI.esc(sub ? sub.name : r.name) + '</option>';
+          }).join('') + '</select></div>' +
+        '<div class="hint">修改后学员端首页、刷题入口会指向新路线；原路线的学习进度按课程保留。</div>',
+      actions: [
+        { label: '取消', cls: 'btn-ghost' },
+        { label: '确认修改', cls: 'btn-primary', onClick: function (ov) {
+            var rid = ov.querySelector('#chRoute').value;
+            if (rid === s.routeId) { UI.toast('路线未变化', 'info'); return false; }
+            var old = A.routeName(s.routeId);
+            s.routeId = rid;
+            A.log('学员管理', '修改主路线', s.name + '：' + old.split(' ')[0] + ' → ' + A.routeName(rid).split(' ')[0]);
+            save(); UI.toast('已修改主路线'); render();
+          } }
+      ]
+    });
+  }
+
+  render();
+
+  app.addEventListener('click', function (e) {
+    var pg = e.target.closest('[data-page]');
+    if (pg && !pg.disabled) { page = Number(pg.getAttribute('data-page')); render(); return; }
+
+    var dt = e.target.closest('[data-detail]');
+    if (dt) { detail(dt.getAttribute('data-detail')); return; }
+
+    var rs = e.target.closest('[data-reset]');
+    if (rs) {
+      var s = d().students.find(function (x) { return x.id === rs.getAttribute('data-reset'); });
+      if (!s) return;
+      UI.confirm('重置密码', '将「' + UI.esc(s.name) + '」的登录密码重置为临时密码 <b>123456</b>，学员下次登录后应尽快修改。', function () {
+        A.log('学员管理', '重置密码', s.name + '（' + s.phone + '）');
+        save(); UI.toast('密码已重置为 123456');
+      }, '确认重置');
+      return;
+    }
+
+    var rt = e.target.closest('[data-route]');
+    if (rt) { changeRoute(rt.getAttribute('data-route')); return; }
+
+    var tg = e.target.closest('[data-toggle]');
+    if (tg) {
+      var s2 = d().students.find(function (x) { return x.id === tg.getAttribute('data-toggle'); });
+      if (!s2) return;
+      var toDisable = s2.status !== '禁用';
+      var doIt = function () {
+        s2.status = toDisable ? '禁用' : '正常';
+        A.log('学员管理', toDisable ? '禁用学员' : '启用学员', s2.name + '（' + s2.phone + '）');
+        save(); UI.toast(toDisable ? '已禁用该学员' : '已启用该学员'); render();
+      };
+      if (toDisable) UI.confirm('禁用学员', '禁用后「' + UI.esc(s2.name) + '」将无法登录学员端，学习记录会保留。', doIt, '禁用', true);
+      else doIt();
+      return;
+    }
+
+    var dl = e.target.closest('[data-delete]');
+    if (dl) {
+      var s3 = d().students.find(function (x) { return x.id === dl.getAttribute('data-delete'); });
+      if (!s3) return;
+      UI.confirm('注销学员', '注销后「' + UI.esc(s3.name) + '」的姓名与手机号将被脱敏，学习与面试行为记录保留用于统计。此操作不可恢复。', function () {
+        A.log('学员管理', '注销账号', s3.name + '（' + s3.phone + '）');
+        s3.name = '已注销学员';
+        s3.phone = '—';
+        s3.status = '注销';
+        save(); UI.toast('账号已注销'); render();
+      }, '确认注销', true);
+    }
+  });
+
+  app.addEventListener('input', function (e) {
+    if (e.target.id === 'stuKw') {
+      var el = e.target;
+      clearTimeout(el._t);
+      el._t = setTimeout(function () {
+        kw = el.value.trim(); page = 1; render();
+        var next = document.getElementById('stuKw');
+        if (next) { next.focus(); next.setSelectionRange(next.value.length, next.value.length); }
+      }, 240);
+    }
+  });
+  app.addEventListener('change', function (e) {
+    if (e.target.id === 'stuRoute') { routeFilter = e.target.value; page = 1; render(); }
+    if (e.target.id === 'stuStatus') { statusFilter = e.target.value; page = 1; render(); }
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>权限管理 · 云枢智学运营台</title>
+<link rel="stylesheet" href="../assets/css/app.css">
+</head>
+<body class="admin-body">
+<div class="shell">
+  <aside class="sidebar" id="app-side"></aside>
+  <div class="main">
+    <header class="topbar" id="app-top"></header>
+    <main class="admin-page" id="app"></main>
+  </div>
+</div>
+
+<script src="../assets/js/data.js"></script>
+<script src="../assets/js/ui.js"></script>
+<script src="../assets/js/admin-shared.js"></script>
+<script>
+(function () {
+  var A = AdminApp;
+  A.renderShell('users', '权限管理', '预设角色 + 模块级权限');
+  var app = document.getElementById('app');
+  var tab = 'users';
+
+  function d() { return A.data(); }
+  function save() { A.save(d()); }
+
+  var MODULE_GROUPS = ['学科管理', '课程库', '刷题题库', '面试设置', '学习路线', '学员管理', '系统用户', '角色管理', '操作日志', '数据看板'];
+
+  function render() {
+    app.innerHTML =
+      '<div class="between wrap mb-16"><div><div class="admin-title">权限管理</div>' +
+        '<div class="admin-sub">全机构数据共享，权限只控制“能不能操作”，不控制“能看到哪部分”。</div></div></div>' +
+      '<div class="tabs">' +
+        '<button data-tab="users" class="' + (tab === 'users' ? 'active' : '') + '">系统用户</button>' +
+        '<button data-tab="roles" class="' + (tab === 'roles' ? 'active' : '') + '">角色与权限</button>' +
+      '</div>' +
+      '<div id="tabBody"></div>';
+    document.getElementById('tabBody').innerHTML = tab === 'users' ? usersHtml() : rolesHtml();
+  }
+
+  /* ---------------- 系统用户 ---------------- */
+  function usersHtml() {
+    return '<div class="toolbar"><span class="small muted">共 ' + d().admins.length + ' 个后台账号</span>' +
+        '<div style="flex:1"></div>' +
+        '<button class="btn btn-sm btn-primary" data-add-user>' + UI.icon('plus', 14) + '新增用户</button></div>' +
+      '<div class="table-wrap"><table class="table"><thead><tr>' +
+        '<th>用户</th><th>账号</th><th>角色</th><th>状态</th><th>最近登录</th><th style="text-align:right">操作</th></tr></thead><tbody>' +
+        d().admins.map(function (u) {
+          return '<tr><td><div class="td-main">' + UI.avatarHtml(u.name, 'sm') +
+              '<div class="td-title">' + UI.esc(u.name) + '</div></div></td>' +
+            '<td class="mono small">' + UI.esc(u.account) + '</td>' +
+            '<td><span class="tag ' + (u.role === '超级管理员' ? 'tag-brand' : u.role === '内容运营' ? 'tag-blue' : 'tag-amber') + '">' + UI.esc(u.role) + '</span></td>' +
+            '<td><span class="tag ' + (u.status === '启用' ? 'tag-green' : 'tag') + '">' + UI.esc(u.status) + '</span></td>' +
+            '<td class="small muted">' + UI.esc(u.lastLogin) + '</td>' +
+            '<td><div class="actions">' +
+              '<button class="btn btn-sm btn-ghost" data-edit-user="' + u.id + '">编辑</button>' +
+              '<button class="btn btn-sm btn-ghost" data-toggle-user="' + u.id + '">' + (u.status === '启用' ? '停用' : '启用') + '</button>' +
+            '</div></td></tr>';
+        }).join('') +
+      '</tbody></table></div>' +
+      '<div class="small muted mt-12">' + UI.icon('info', 13) + ' 后台账号只停用、不删除；超级管理员不能停用自己。</div>';
+  }
+
+  function userForm(id) {
+    var u = id ? d().admins.find(function (x) { return x.id === id; }) : null;
+    UI.modal({
+      title: u ? '编辑用户' : '新增用户',
+      subtitle: u ? u.account : '新账号默认密码 123456',
+      body:
+        '<div class="field"><label>姓名<span class="req">*</span></label><input class="input" id="uName" value="' + UI.esc(u ? u.name : '') + '"></div>' +
+        '<div class="field"><label>登录账号<span class="req">*</span></label><input class="input" id="uAcc" value="' + UI.esc(u ? u.account : '') + '" placeholder="字母或数字"></div>' +
+        '<div class="field"><label>角色</label><select class="select" id="uRole">' + d().roles.map(function (r) {
+          return '<option ' + (u && u.role === r.name ? 'selected' : '') + '>' + UI.esc(r.name) + '</option>';
+        }).join('') + '</select></div>' +
+        '<div class="field"><label>状态</label><select class="select" id="uStatus">' +
+          '<option ' + (u && u.status === '停用' ? '' : 'selected') + '>启用</option><option ' + (u && u.status === '停用' ? 'selected' : '') + '>停用</option></select></div>' +
+        (u ? '<div class="hint">如忘记密码，可在此保存后使用默认密码重置流程（演示）。</div>' : ''),
+      actions: [
+        { label: '取消', cls: 'btn-ghost' },
+        { label: '保存', cls: 'btn-primary', onClick: function (ov) {
+            var name = ov.querySelector('#uName').value.trim();
+            var acc = ov.querySelector('#uAcc').value.trim();
+            if (!name || !acc) { UI.toast('姓名与账号不能为空', 'err'); return false; }
+            var dup = d().admins.some(function (x) { return x.account === acc && (!u || x.id !== u.id); });
+            if (dup) { UI.toast('该账号已存在', 'err'); return false; }
+            if (u) {
+              u.name = name; u.account = acc;
+              u.role = ov.querySelector('#uRole').value;
+              u.status = ov.querySelector('#uStatus').value;
+              A.log('系统用户', '编辑用户', name + '（' + u.role + '）');
+            } else {
+              d().admins.push({
+                id: UI.uid('a'), name: name, account: acc,
+                role: ov.querySelector('#uRole').value,
+                status: ov.querySelector('#uStatus').value,
+                lastLogin: '—'
+              });
+              A.log('系统用户', '新增用户', name + '（' + ov.querySelector('#uRole').value + '）');
+            }
+            save(); UI.toast('已保存'); render();
+          } }
+      ]
+    });
+  }
+
+  /* ---------------- 角色 ---------------- */
+  function rolesHtml() {
+    var matrix = '<div class="card mb-16"><div class="card-hd"><div><div class="card-title">权限矩阵</div>' +
+        '<div class="small muted" style="margin-top:2px">按模块授权，勾选即拥有该模块的操作权限</div></div></div>' +
+      '<div class="table-wrap" style="border:0"><table class="table" style="min-width:720px"><thead><tr><th>模块</th>' +
+        d().roles.map(function (r) { return '<th class="center">' + UI.esc(r.name) + '</th>'; }).join('') + '</tr></thead><tbody>' +
+        MODULE_GROUPS.map(function (m) {
+          return '<tr><td class="td-title">' + m + '</td>' + d().roles.map(function (r) {
+            return '<td class="center">' + (r.modules.indexOf(m) >= 0
+              ? '<span style="color:var(--green)">' + UI.icon('check', 15) + '</span>'
+              : '<span class="muted-2">—</span>') + '</td>';
+          }).join('') + '</tr>';
+        }).join('') +
+      '</tbody></table></div></div>';
+
+    var cards = d().roles.map(function (r) {
+      var users = d().admins.filter(function (u) { return u.role === r.name; }).length;
+      var locked = r.name === '超级管理员';
+      return '<div class="role-card mb-12">' +
+        '<div class="between wrap"><div><div class="row gap-8"><h4>' + UI.esc(r.name) + '</h4>' +
+            '<span class="tag">' + users + ' 个账号</span>' + (locked ? '<span class="tag tag-brand">全部权限</span>' : '') + '</div>' +
+          '<div class="small muted" style="margin-top:3px">' + UI.esc(r.desc) + '</div></div>' +
+          (locked ? '<span class="small muted">系统内置，不可修改</span>' : '<span class="small muted">勾选后立即生效</span>') +
+        '</div>' +
+        '<div class="perm-grid">' + MODULE_GROUPS.map(function (m) {
+          return '<label class="check"><input type="checkbox" data-role="' + r.id + '" value="' + m + '" ' +
+            (r.modules.indexOf(m) >= 0 ? 'checked' : '') + ' ' + (locked ? 'disabled' : '') + '> ' + m + '</label>';
+        }).join('') + '</div>' +
+      '</div>';
+    }).join('');
+
+    return matrix + '<div class="section-title">' + UI.icon('shield', 16) + '角色</div>' + cards +
+      '<div class="small muted">' + UI.icon('info', 13) + ' 修改角色权限后，对应账号下次刷新页面时菜单会同步变化。</div>';
+  }
+
+  render();
+
+  app.addEventListener('click', function (e) {
+    var t = e.target.closest('[data-tab]');
+    if (t) { tab = t.getAttribute('data-tab'); render(); return; }
+
+    if (e.target.closest('[data-add-user]')) { userForm(null); return; }
+    var eu = e.target.closest('[data-edit-user]');
+    if (eu) { userForm(eu.getAttribute('data-edit-user')); return; }
+
+    var tu = e.target.closest('[data-toggle-user]');
+    if (tu) {
+      var id = tu.getAttribute('data-toggle-user');
+      var u = d().admins.find(function (x) { return x.id === id; });
+      if (!u) return;
+      if (u.account === A.session().account) { UI.toast('不能停用当前登录账号', 'err'); return; }
+      u.status = u.status === '启用' ? '停用' : '启用';
+      A.log('系统用户', u.status === '启用' ? '启用用户' : '停用用户', u.name);
+      save(); UI.toast(u.status === '启用' ? '已启用' : '已停用'); render();
+      return;
+    }
+  });
+
+  app.addEventListener('change', function (e) {
+    var cb = e.target.closest('input[data-role]');
+    if (!cb) return;
+    var role = d().roles.find(function (r) { return r.id === cb.getAttribute('data-role'); });
+    if (!role) return;
+    var m = cb.value;
+    if (cb.checked) {
+      if (role.modules.indexOf(m) < 0) role.modules.push(m);
+    } else {
+      role.modules = role.modules.filter(function (x) { return x !== m; });
+    }
+    // 保持模块顺序
+    role.modules.sort(function (a, b) { return MODULE_GROUPS.indexOf(a) - MODULE_GROUPS.indexOf(b); });
+    A.log('角色管理', cb.checked ? '授予权限' : '移除权限', role.name + '：' + m);
+    save(); UI.toast('权限已更新');
+    // 重新渲染矩阵
+    render();
+  });
+})();
+</script>
+</body>
+</html>

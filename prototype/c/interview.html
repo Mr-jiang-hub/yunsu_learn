@@ -1,0 +1,871 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI 面试 · 云枢智学</title>
+<link rel="stylesheet" href="../assets/css/app.css">
+</head>
+<body>
+<div id="app-header"></div>
+<main id="app"></main>
+
+<script src="../assets/js/data.js"></script>
+<script src="../assets/js/ui.js"></script>
+<script src="../assets/js/c-shared.js"></script>
+<script>
+(function () {
+  var user = C.init('interview');
+  if (!user) return;
+  var app = document.getElementById('app');
+  var content = DATA.content();
+  var subjects = content.subjects;
+  var params = new URLSearchParams(location.search);
+  var viewId = params.get('id');
+
+  var phase = 'setup';          // setup | chat | report
+  var iv = null;
+  var waiting = false;
+  var selSubject = 'agent';
+  var selDiff = 'medium';
+  var ongoing = C.ongoingInterview();
+
+  /* 难度档位：默认值 + 运营后台「面试设置」中的配置 */
+  var DIFF_DEFS = [
+    { id: 'easy', label: '简单', enabled: true, color: '#0B8A4B', bg: '#ECFDF3', desc: '围绕基础概念与课程要点提问，确认你是否真正理解。', tags: ['基础概念', '直接提问', '确认理解'] },
+    { id: 'medium', label: '中等', enabled: true, color: '#B54708', bg: '#FFFAEB', desc: '结合课程场景追问做法与原因，考察设计与取舍。', tags: ['场景应用', '做法与原因', '设计取舍'] },
+    { id: 'hard', label: '困难', enabled: true, color: '#B42318', bg: '#FEECEB', desc: '深入真实项目与边界条件，追问兜底与效果衡量。', tags: ['项目落地', '失败兜底', '效果衡量'] }
+  ];
+  var savedDiffs = (content.ivcfg && content.ivcfg.diffs) || [];
+  var DIFFS = DIFF_DEFS.map(function (base) {
+    var saved = savedDiffs.find(function (x) { return x.id === base.id; });
+    return saved ? Object.assign({}, base, saved) : base;
+  });
+  var ACTIVE_DIFFS = DIFFS.filter(function (d) { return d.enabled !== false; });
+  if (!ACTIVE_DIFFS.length) ACTIVE_DIFFS = DIFFS.slice();
+
+  var QGEN = {
+    easy: {
+      openings: [
+        '我们先从基础开始。你在「{stage}」里学了{course}，能用一两句话说明它主要解决什么问题吗？',
+        '我们聊聊「{stage}」。关于{course}，你记得最重要的一个要点是什么？为什么？'
+      ],
+      follows: [
+        '你刚才提到「{snippet}」。能结合{course}举一个具体例子吗？',
+        '换个角度：如果让你把{course}里的方法讲给一个没学过的同学，你会怎么解释？',
+        '最后一个问题：在「{stage}」里，{course}和前面学过的内容有什么联系？'
+      ]
+    },
+    medium: {
+      openings: [
+        '结合你在「{stage}」学到的{course}，如果在一个真实场景里用起来，你会怎么做？重点说说步骤和原因。',
+        '{course}里的方法，在什么情况下效果最好、什么情况下可能失效？结合你的理解展开说说。'
+      ],
+      follows: [
+        '你提到「{snippet}」。如果把这个做法放到更复杂的业务场景里，最大的风险是什么？你会怎么处理？',
+        '围绕{course}，你会怎么衡量方案是否有效？如果效果不达预期，先调整哪一步？',
+        '假设要在资源有限的团队里落地{course}，你会如何安排优先级和分工？'
+      ]
+    },
+    hard: {
+      openings: [
+        '你在「{stage}」已经接触了{course}。如果把它落到真实项目里，最可能出问题的地方是什么？你会如何提前规避？',
+        '围绕{course}，请设计一个可落地的方案，并说明关键取舍、失败兜底和效果衡量方式。'
+      ],
+      follows: [
+        '你提到「{snippet}」。请进一步说明取舍依据：为什么选这个方案，而不是它的替代方案？',
+        '如果线上效果突然下降，你会如何定位问题？请结合{course}给出排查顺序和判断标准。',
+        '如果团队里有人反对你的方案，你会用什么数据或实验说服他？请给出一个可执行的验证计划。'
+      ]
+    }
+  };
+
+  /* ---------- 语音能力 ---------- */
+  var REC = window.SpeechRecognition || window.webkitSpeechRecognition;
+  var voiceOK = !!REC;                 // 浏览器是否支持语音识别
+  var ttsOK = 'speechSynthesis' in window;
+  var ttsOn = Store.get('ivTts', true) !== false;   // AI 面试官语音播报
+  var rec = null;
+  var listening = false;
+  var voiceBase = '';                  // 开始录音前输入框里已有的文字
+  var voiceFinal = '';                 // 已确定的转写结果
+  var voiceInterim = '';               // 临时识别结果
+
+  function dimsOf(sid) { return content.dimensions[sid] || []; }
+  function subjectOf(sid) { return subjects.find(function (s) { return s.id === sid; }); }
+  function diffOf(id) {
+    return DIFFS.find(function (d) { return d.id === id; }) || ACTIVE_DIFFS[0] || DIFFS[0];
+  }
+
+  /* 当前阶段：优先取学员主路线上的当前阶段；否则取该学科起始阶段 */
+  function stageFor(sid) {
+    var route = null;
+    if (user.mainRoute) {
+      var own = DATA.findRoute(user.mainRoute);
+      if (own && own.subjectId === sid) route = own;
+    }
+    if (!route) route = content.routes.find(function (r) { return r.subjectId === sid; });
+    if (!route || !route.stages || !route.stages.length) return null;
+    return { stage: C.currentStage(route), route: route, isMain: route.id === user.mainRoute };
+  }
+
+  function stageOfIv(x) {
+    var f = x.stageId ? DATA.findStage(x.stageId) : null;
+    if (f) return f.stage;
+    var s = stageFor(x.subjectId);
+    return s ? s.stage : { id: x.stageId || '', name: x.stageName || x.topic || '当前阶段', courses: [], questions: [], goal: '' };
+  }
+
+  function ivLabel(x) {
+    if (!x) return '';
+    var st = x.stageName || x.topic || '';
+    var d = x.difficulty ? diffOf(x.difficulty).label : '';
+    return st + (d ? ' · ' + d + '难度' : '');
+  }
+
+  /* ---------- 模拟大模型出题：基于阶段课程 + 上一轮回答 ---------- */
+  function cleanStage(name) {
+    return String(name || '当前阶段').replace(/^阶段[一二三四五六七八九十]+[·\s]*/, '');
+  }
+
+  /* 优先围绕已开始/已完成的课程出题；本阶段还没开始时，按阶段课程顺序 */
+  function coursePool(stage) {
+    var cs = stage.courses || [];
+    var learned = cs.filter(function (c) { return C.isStarted(c.id) || C.isCompleted(c.id); });
+    return learned.length ? learned : cs;
+  }
+
+  function focusCourse(stage, idx) {
+    var pool = coursePool(stage);
+    if (!pool.length) return null;
+    return pool[idx % pool.length];
+  }
+
+  function openingCourse(stage) {
+    var cs = stage.courses || [];
+    var learned = cs.filter(function (c) { return C.isStarted(c.id) || C.isCompleted(c.id); });
+    return learned.length ? learned[learned.length - 1] : (cs[0] || null);
+  }
+
+  function snippetOf(ans) {
+    var raw = String(ans || '').replace(/\s+/g, ' ').trim();
+    if (!raw) return '你的回答';
+    var parts = raw.split(/[，。！？；,.!?;]/).filter(function (x) { return x.trim().length >= 6; });
+    var s = (parts[0] || raw).trim();
+    return s.length > 18 ? s.slice(0, 18) + '…' : s;
+  }
+
+  function fillQuestion(tpl, stage, course, answer) {
+    return tpl
+      .replace(/\{stage\}/g, cleanStage(stage.name))
+      .replace(/\{course\}/g, course ? '《' + course.title + '》' : '这一阶段的课程')
+      .replace(/\{snippet\}/g, snippetOf(answer));
+  }
+
+  function genOpening(stage, diffId) {
+    var bank = QGEN[diffOf(diffId).id].openings;
+    var tpl = bank[Math.floor(Math.random() * bank.length)];
+    return fillQuestion(tpl, stage, openingCourse(stage), '');
+  }
+
+  function genFollowup(stage, diffId, round, answer) {
+    var bank = QGEN[diffOf(diffId).id].follows;
+    var tpl = bank[Math.max(0, Math.min(bank.length - 1, round - 1))];
+    return fillQuestion(tpl, stage, focusCourse(stage, round), answer);
+  }
+
+  function within24h(ivv) {
+    var t = new Date(String(ivv.startedAt).replace(' ', 'T')).getTime();
+    return Date.now() - t <= 24 * 3600 * 1000;
+  }
+  function answerCount() {
+    return iv ? iv.messages.filter(function (m) { return m.role === 'me'; }).length : 0;
+  }
+  function answerTexts() {
+    return iv.messages.filter(function (m) { return m.role === 'me'; }).map(function (m) { return m.text; });
+  }
+
+  /* ================= 设置页 ================= */
+  function renderSetup() {
+    if (!ACTIVE_DIFFS.some(function (d) { return d.id === selDiff; }) && ACTIVE_DIFFS.length) {
+      selDiff = ACTIVE_DIFFS[0].id;
+    }
+    var sub = subjectOf(selSubject);
+    var src = stageFor(selSubject);
+    var stage = src ? src.stage : null;
+    var diff = diffOf(selDiff);
+    var bg = C.gradient(sub);
+
+    var subjectCards = subjects.map(function (s) {
+      var active = s.id === selSubject;
+      return '<button class="card card-pad" data-subject="' + s.id + '" style="text-align:left;cursor:pointer;border:1.5px solid ' + (active ? s.color : 'var(--line)') + ';' +
+        (active ? 'box-shadow:0 8px 24px ' + hexA(s.color, .16) + ';' : '') + '">' +
+        '<div class="between"><div class="tool-ic" style="background:' + hexA(s.color, .12) + ';color:' + s.color + '">' + UI.icon(s.icon, 19) + '</div>' +
+          (active ? '<span class="tag" style="background:' + hexA(s.color, .12) + ';color:' + s.color + '">' + UI.icon('check', 12) + '已选择</span>' : '') + '</div>' +
+        '<div class="semibold mt-12" style="font-size:14px">' + UI.esc(s.name) + '</div>' +
+        '<div class="tiny muted" style="margin-top:2px">' + UI.esc(s.tagline) + '</div>' +
+      '</button>';
+    }).join('');
+
+    var diffCards = ACTIVE_DIFFS.map(function (d) {
+      var active = d.id === selDiff;
+      return '<button class="card card-pad" data-diff="' + d.id + '" style="text-align:left;cursor:pointer;border:1.5px solid ' + (active ? 'var(--brand)' : 'var(--line)') + ';' +
+        (active ? 'background:#FBFAFF;box-shadow:0 8px 24px rgba(79,70,229,.10);' : '') + '">' +
+        '<div class="between"><b style="font-size:14px">' + d.label + '</b>' +
+          '<span class="tag ' + (active ? 'tag-brand' : '') + '">' + (active ? UI.icon('check', 12) + '已选择' : '难度') + '</span></div>' +
+        '<div class="small muted" style="margin-top:6px;line-height:1.6;min-height:38px">' + UI.esc(d.desc) + '</div>' +
+        '<div class="row gap-6 wrap mt-10">' + d.tags.map(function (t) {
+          return '<span class="tag" style="background:' + d.bg + ';color:' + d.color + '">' + UI.esc(t) + '</span>';
+        }).join('') + '</div>' +
+      '</button>';
+    }).join('');
+
+    var ongoingHtml = '';
+    if (ongoing) {
+      var os = subjectOf(ongoing.subjectId);
+      ongoingHtml = '<div class="card card-pad mb-20" style="border-color:#C7C9FF;background:linear-gradient(180deg,#FBFAFF,#fff)">' +
+        '<div class="between wrap" style="gap:12px">' +
+          '<div class="row gap-12">' +
+            '<div class="tool-ic ic-brand" style="width:40px;height:40px;border-radius:12px">' + UI.icon('message', 20) + '</div>' +
+            '<div><div class="semibold">你有一场未完成的面试</div>' +
+              '<div class="small muted">' + UI.esc(os ? os.name : '') + ' · ' + UI.esc(ivLabel(ongoing)) + ' · 已答 ' + answerCountOf(ongoing) + ' / 4 轮 · 开始于 ' + UI.fmtDate(ongoing.startedAt) + '</div></div>' +
+          '</div>' +
+          '<div class="row gap-8">' +
+            '<button class="btn btn-sm btn-ghost" data-abandon>放弃本场</button>' +
+            '<button class="btn btn-sm btn-primary" data-resume>' + UI.icon('play', 13) + '继续面试</button>' +
+          '</div>' +
+        '</div>' +
+        '<div class="tiny muted mt-12">' + UI.icon('info', 12) + ' 面试开始后 24 小时内可继续，超时自动失效。</div>' +
+      '</div>';
+    }
+
+    app.innerHTML =
+      '<div class="container page">' +
+        '<div class="page-head"><div><div class="page-title">AI 语音面试</div>' +
+          '<div class="page-sub">选择学科与难度，AI 会基于你当前阶段的课程内容和每轮回答实时生成面试题。</div></div>' +
+          '<a class="btn btn-ghost" href="records.html">' + UI.icon('clock', 15) + '面试记录</a></div>' +
+
+        ongoingHtml +
+
+        '<div class="section-title">' + UI.icon('layers', 17) + '1. 选择学科</div>' +
+        '<div class="grid g3 mb-24">' + subjectCards + '</div>' +
+
+        '<div class="section-title">' + UI.icon('target', 17) + '2. 选择面试难度</div>' +
+        '<div class="grid g3 mb-24">' + diffCards + '</div>' +
+
+        '<div class="grid" style="grid-template-columns:minmax(0,1fr) 320px;align-items:start;gap:18px">' +
+          '<div class="card card-pad" style="background:' + bg + ';color:#fff;border:0;position:relative;overflow:hidden">' +
+            '<div style="position:absolute;width:180px;height:180px;border-radius:50%;right:-60px;top:-80px;background:rgba(255,255,255,.16)"></div>' +
+            '<div style="position:relative">' +
+              '<div class="small" style="color:rgba(255,255,255,.7)">题目由大模型实时生成 · ' + (src ? (src.isMain ? '当前学习阶段' : '该学科起始阶段') : '暂无可用阶段') + '</div>' +
+              '<h3 style="font-size:19px;font-weight:800;margin-top:4px">' + (stage ? UI.esc(stage.name) : '该学科暂无可用阶段') + '</h3>' +
+              '<div class="small mt-8" style="color:rgba(255,255,255,.68);line-height:1.65">' +
+                (stage ? ('读取本阶段 ' + stage.courses.length + ' 门课程与 ' + stage.questions.length + ' 道练习，结合你每轮的回答生成下一题') : '请先在后台为该学科配置学习路线与阶段') +
+              '</div>' +
+              '<div class="row gap-8 mt-12 wrap" style="color:rgba(255,255,255,.8);font-size:12.5px">' +
+                '<span>' + UI.icon('sparkles', 14) + diff.label + '难度</span><span>·</span>' +
+                '<span>' + UI.icon('mic', 14) + '语音作答</span><span>·</span><span>自动转文字</span><span>·</span><span>固定 4 轮</span></div>' +
+            '</div>' +
+          '</div>' +
+          '<div class="card card-pad">' +
+            '<div class="small muted" style="line-height:1.9">' +
+              '· 大模型会读取当前阶段课程内容生成开场题<br>' +
+              '· 每轮追问会结合你上一轮的回答实时生成<br>' +
+              '· 难度决定追问深度：简单确认理解，中等追问做法，困难深挖边界<br>' +
+              '· 点击麦克风语音作答，浏览器实时转成文字，可编辑后发送<br>' +
+              '· 首次使用请允许麦克风权限，语音识别需要联网<br>' +
+              '· 报告包含整体总评 + ' + dimsOf(selSubject).length + ' 个能力维度得分<br>' +
+              '· 可重复面试，历史记录全部保留，方便对比进步' +
+            '</div>' +
+            (voiceOK ? '' : '<div class="voice-hint" style="margin-top:10px"><span class="warn">' + UI.icon('alert', 12) + ' 当前浏览器不支持语音识别，将使用文字作答</span></div>') +
+            '<button class="btn btn-primary btn-lg btn-block mt-16" data-start ' + (stage ? '' : 'disabled') + '>' + UI.icon('mic', 16) + '开始语音面试</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    window.scrollTo(0, 0);
+  }
+
+  function answerCountOf(x) {
+    return x.messages ? x.messages.filter(function (m) { return m.role === 'me'; }).length : 0;
+  }
+
+  function hexA(hex, a) {
+    var h = String(hex).replace('#', '');
+    if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+    var r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16);
+    return 'rgba(' + r + ',' + g + ',' + b + ',' + a + ')';
+  }
+
+  /* ================= 面试对话 ================= */
+  function enterChat() {
+    phase = 'chat';
+    if (voiceOK) initRec();
+    renderChat();
+    if (!iv.messages.length) {
+      aiSay(genOpening(stageOfIv(iv), iv.difficulty || 'medium'), null);
+    }
+  }
+
+  function renderChat() {
+    var sub = subjectOf(iv.subjectId);
+    var stage = stageOfIv(iv);
+    var diff = diffOf(iv.difficulty || 'medium');
+    var stageTitle = iv.stageName || iv.topic || stage.name;
+    var n = answerCount();
+    var round = n + 1;
+    if (round > 4) round = 4;
+
+    var dots = '';
+    for (var i = 0; i < 4; i++) {
+      dots += '<i class="' + (i < n ? 'on' : (i === n && !waiting ? 'cur' : '')) + '"></i>';
+    }
+
+    app.innerHTML =
+      '<div class="interview-wrap">' +
+        '<div class="iv-side">' +
+          '<div class="card card-pad">' +
+            '<div class="between"><span class="tag" style="background:' + hexA(sub.color, .12) + ';color:' + sub.color + '">' + UI.esc(sub.name) + '</span>' +
+              '<span class="tag" style="background:' + diff.bg + ';color:' + diff.color + '">' + diff.label + '难度</span></div>' +
+            '<h4 style="font-size:15px;font-weight:700;margin-top:10px">' + UI.esc(stageTitle) + '</h4>' +
+            '<div class="tiny muted" style="margin-top:3px">题目基于当前阶段课程与你每轮的回答生成</div>' +
+            '<div class="small muted mt-8">考察维度</div>' +
+            '<div class="row gap-6 wrap mt-8">' + dimsOf(iv.subjectId).map(function (d) { return '<span class="tag">' + UI.esc(d) + '</span>'; }).join('') + '</div>' +
+            '<div class="divider"></div>' +
+            '<div class="between"><span class="small muted">面试进度</span><span class="small semibold">' + Math.min(n + (waiting ? 0 : 0), 4) + ' / 4 轮</span></div>' +
+            '<div class="round-dots mt-12">' + dots + '</div>' +
+            '<div class="divider"></div>' +
+            '<div class="small muted" style="line-height:1.8">流程：1 个开场问题 + 3 轮追问，全部基于阶段内容与你的回答动态生成。回答越具体，追问越有针对性。</div>' +
+            '<button class="btn btn-danger-ghost btn-block mt-16" data-end>结束面试并生成报告</button>' +
+          '</div>' +
+          '<div class="card card-pad">' +
+            '<div class="row gap-8" style="color:var(--muted)">' + UI.icon('info', 15) + '<b style="font-size:12.5px;color:var(--ink-2)">演示说明</b></div>' +
+            '<div class="tiny muted mt-8" style="line-height:1.8">面试题、AI 回复与报告由前端模拟大模型生成，不调用真实模型；语音识别与朗读由浏览器提供。' +
+              (voiceOK ? '' : '<br><b style="color:#B54708">当前浏览器不支持语音识别，已自动切换为文字作答。</b>') + '</div>' +
+          '</div>' +
+        '</div>' +
+
+        '<div class="iv-main">' +
+          '<div class="iv-head">' +
+            '<div class="row gap-10"><span class="avatar sm" style="background:linear-gradient(135deg,#171A2E,#3A2C7A)">AI</span>' +
+              '<div><div class="semibold" style="font-size:13.5px">AI 面试官</div>' +
+              '<div class="tiny" style="color:var(--green)"><span class="dot" style="margin-right:4px"></span>在线 · ' + UI.esc(cleanStage(stage.name)) + ' · ' + diff.label + '</div></div></div>' +
+            '<div class="row gap-10">' +
+              (ttsOK ? '<button class="tts-toggle ' + (ttsOn ? 'on' : '') + '" data-tts title="AI 面试官语音朗读开关">' +
+                UI.icon(ttsOn ? 'volume' : 'volumeOff', 13) + '<span>' + (ttsOn ? '朗读开' : '朗读关') + '</span></button>' : '') +
+              '<div class="round-dots">' + dots + '</div><span class="tag">第 ' + Math.min(n + 1, 4) + ' / 4 轮</span></div>' +
+          '</div>' +
+          '<div class="iv-body" id="ivBody"></div>' +
+          '<div class="iv-foot">' +
+            '<div class="voice-bar hide" id="voiceBar">' +
+              '<span class="voice-wave"><i></i><i></i><i></i><i></i></span>' +
+              '<span id="voiceStatus">正在聆听，请说话…</span>' +
+              '<span class="voice-interim" id="voiceInterim"></span>' +
+            '</div>' +
+            '<div class="iv-input">' +
+              '<textarea id="ivInput" placeholder="' + (voiceOK ? '点击麦克风说话，自动转成文字；也可以直接输入…' : '当前浏览器不支持语音识别，请输入你的回答…') + '"></textarea>' +
+              '<button class="mic-btn ' + (voiceOK ? '' : 'disabled') + '" id="micBtn" data-mic title="' + (voiceOK ? '点击开始语音作答' : '当前浏览器不支持语音识别') + '" ' + (voiceOK ? '' : 'disabled') + '>' +
+                UI.icon('mic', 19) + '</button>' +
+              '<button class="btn btn-primary" id="sendBtn" style="height:44px;width:44px;padding:0;border-radius:12px">' + UI.icon('arrowUp', 18) + '</button>' +
+            '</div>' +
+            '<div class="voice-hint">' +
+              '<span' + (voiceOK ? '' : ' class="warn"') + '>' + (voiceOK ? '语音由浏览器实时转写，可编辑后再发送' : '当前浏览器不支持语音识别，已切换为文字作答') + '</span>' +
+              '<span>Enter 发送 · Shift + Enter 换行</span>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+
+    paintMessages();
+    bindChat();
+  }
+
+  function paintMessages() {
+    var box = document.getElementById('ivBody');
+    if (!box) return;
+    var sub = subjectOf(iv.subjectId);
+    box.innerHTML = iv.messages.map(function (m, mi) {
+      if (m.role === 'ai') {
+        return '<div class="msg ai"><span class="avatar sm" style="background:linear-gradient(135deg,#171A2E,#3A2C7A)">AI</span>' +
+          '<div><div class="bubble">' + UI.esc(m.text) + '</div><div class="meta">AI 面试官 · ' + UI.fmtDate(m.at || '') +
+            '<button class="speak-btn" data-speak="' + mi + '" title="朗读这条问题">' + UI.icon('volume', 12) + '</button></div></div></div>';
+      }
+      return '<div class="msg me"><span class="avatar sm">' + UI.esc((user.nickname || '我').slice(0, 1)) + '</span>' +
+        '<div><div class="bubble">' + UI.esc(m.text) + '</div><div class="meta">我 · ' + UI.fmtDate(m.at || '') + ' · 语音转写</div></div></div>';
+    }).join('') +
+      (waiting ? '<div class="msg ai"><span class="avatar sm" style="background:linear-gradient(135deg,#171A2E,#3A2C7A)">AI</span>' +
+        '<div class="bubble"><span class="typing"><i></i><i></i><i></i></span></div></div>' : '');
+    box.scrollTop = box.scrollHeight;
+    var send = document.getElementById('sendBtn');
+    if (send) send.disabled = waiting;
+    var mic = document.getElementById('micBtn');
+    if (mic) mic.disabled = waiting || !voiceOK;
+    syncMicUI();
+  }
+
+  function bindChat() {
+    var ta = document.getElementById('ivInput');
+    var send = document.getElementById('sendBtn');
+    send.addEventListener('click', sendAnswer);
+    ta.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendAnswer(); }
+    });
+    var mic = document.getElementById('micBtn');
+    if (mic) mic.addEventListener('click', toggleVoice);
+    var end = app.querySelector('[data-end]');
+    if (end) end.addEventListener('click', function () {
+      UI.confirm('结束面试', '结束后将按已作答的内容生成报告，本场不能继续作答。确定结束吗？', function () {
+        finish();
+      }, '结束并生成报告', true);
+    });
+    ta.focus();
+  }
+
+  /* ---------- 语音转文字 ---------- */
+  function initRec() {
+    if (!voiceOK || rec) return;
+    rec = new REC();
+    rec.lang = 'zh-CN';
+    rec.interimResults = true;
+    rec.continuous = true;
+    rec.onstart = function () {
+      listening = true;
+      voiceInterim = '';
+      syncMicUI();
+      renderVoiceInterim();
+    };
+    rec.onresult = function (e) {
+      if (!listening) return;         // 已停止/已发送，忽略迟到的识别结果
+      var interim = '';
+      for (var i = e.resultIndex; i < e.results.length; i++) {
+        var r = e.results[i];
+        if (r.isFinal) voiceFinal += r[0].transcript;
+        else interim += r[0].transcript;
+      }
+      voiceInterim = interim;
+      var ta = document.getElementById('ivInput');
+      if (ta) {
+        var base = (voiceBase + voiceFinal).trim();
+        ta.value = base + (interim ? (base ? ' ' : '') + interim : '');
+        ta.scrollTop = ta.scrollHeight;
+      }
+      renderVoiceInterim();
+    };
+    rec.onerror = function (e) {
+      listening = false;
+      syncMicUI();
+      renderVoiceInterim();
+      var map = {
+        'not-allowed': '麦克风权限被拒绝，请在浏览器地址栏允许麦克风权限',
+        'service-not-allowed': '语音识别服务不可用，请改用文字作答',
+        'no-speech': '没有听到声音，请靠近麦克风再试一次',
+        'audio-capture': '未检测到麦克风设备',
+        'network': '语音识别需要联网，请检查网络后重试'
+      };
+      if (e.error !== 'aborted') UI.toast(map[e.error] || '语音识别失败，请改用文字作答', e.error === 'no-speech' ? 'info' : 'err');
+    };
+    rec.onend = function () {
+      // 浏览器自动结束时，把最后一段临时结果补进正文，避免丢字
+      if (listening && voiceInterim) voiceFinal += voiceInterim;
+      listening = false;
+      voiceInterim = '';
+      var ta = document.getElementById('ivInput');
+      if (ta && voiceFinal) ta.value = (voiceBase + voiceFinal).trim();
+      syncMicUI();
+      renderVoiceInterim();
+    };
+  }
+
+  function startVoice() {
+    if (!voiceOK) { UI.toast('当前浏览器不支持语音识别，请使用文字作答', 'err'); return; }
+    if (listening) return;
+    if (waiting) { UI.toast('请等面试官提问结束后再作答', 'info'); return; }
+    stopSpeak();
+    var ta = document.getElementById('ivInput');
+    voiceBase = ta ? ta.value.trim() : '';
+    voiceFinal = '';
+    voiceInterim = '';
+    initRec();
+    try {
+      rec.start();
+      listening = true;
+      syncMicUI();
+      renderVoiceInterim();
+    } catch (err) {
+      listening = false;
+      syncMicUI();
+      UI.toast('无法启动麦克风，请稍后重试', 'err');
+    }
+  }
+
+  function stopVoice(manual) {
+    var wasListening = listening;
+    listening = false;
+    try { if (rec) rec.stop(); } catch (e) {}
+    if (wasListening && voiceInterim) { voiceFinal += voiceInterim; voiceInterim = ''; }
+    var ta = document.getElementById('ivInput');
+    var clean = (voiceBase + voiceFinal).trim();
+    if (ta) ta.value = clean;
+    syncMicUI();
+    renderVoiceInterim();
+    if (manual) UI.toast(clean ? '语音已转为文字，可编辑后发送' : '没有识别到内容，请再试一次', clean ? 'ok' : 'info');
+  }
+
+  function toggleVoice() {
+    if (listening) stopVoice(true);
+    else startVoice();
+  }
+
+  function resetVoice() {
+    listening = false;
+    voiceBase = '';
+    voiceFinal = '';
+    voiceInterim = '';
+    syncMicUI();
+    renderVoiceInterim();
+  }
+
+  function syncMicUI() {
+    var btn = document.getElementById('micBtn');
+    if (!btn) return;
+    btn.classList.toggle('listening', listening);
+    btn.classList.toggle('disabled', !voiceOK || waiting);
+    btn.title = !voiceOK ? '当前浏览器不支持语音识别' : (listening ? '点击停止录音' : '点击开始语音作答');
+    var bar = document.getElementById('voiceBar');
+    if (bar) bar.classList.toggle('hide', !listening);
+    var st = document.getElementById('voiceStatus');
+    if (st) st.textContent = '正在聆听，请说话…';
+    var ta = document.getElementById('ivInput');
+    if (ta) ta.readOnly = listening;
+  }
+
+  function renderVoiceInterim() {
+    var el = document.getElementById('voiceInterim');
+    if (el) el.textContent = listening && voiceInterim ? '“' + voiceInterim + '”' : '';
+  }
+
+  /* ---------- AI 语音朗读 ---------- */
+  function syncTtsUI() {
+    Array.prototype.forEach.call(document.querySelectorAll('[data-tts]'), function (btn) {
+      btn.classList.toggle('on', ttsOn);
+      btn.innerHTML = UI.icon(ttsOn ? 'volume' : 'volumeOff', 13) + '<span>' + (ttsOn ? '朗读开' : '朗读关') + '</span>';
+    });
+  }
+
+  function speak(text, force) {
+    if (!ttsOK) { if (force) UI.toast('当前浏览器不支持语音朗读', 'err'); return; }
+    if (!force && !ttsOn) return;
+    try {
+      window.speechSynthesis.cancel();
+      var u = new SpeechSynthesisUtterance(text);
+      u.lang = 'zh-CN';
+      u.rate = 1.02;
+      var vs = window.speechSynthesis.getVoices() || [];
+      for (var i = 0; i < vs.length; i++) {
+        if (/^zh([-_](CN|Hans|SG))?/i.test(vs[i].lang)) { u.voice = vs[i]; break; }
+      }
+      window.speechSynthesis.speak(u);
+    } catch (e) {}
+  }
+
+  function stopSpeak() {
+    try { if (ttsOK) window.speechSynthesis.cancel(); } catch (e) {}
+  }
+
+  function sendAnswer() {
+    if (waiting) return;
+    var ta = document.getElementById('ivInput');
+    if (!ta) return;
+    var text = ta.value.trim();
+    if (!text) { UI.toast(listening ? '正在聆听，请说完后再发送' : '请先说话或输入回答', 'err'); return; }
+    if (listening) stopVoice(false);
+    stopSpeak();
+    resetVoice();
+    ta.value = '';
+    iv.messages.push({ role: 'me', text: text, at: C.nowStr() });
+    C.saveInterview(iv);
+    paintMessages();
+    updateChatProgress();
+
+    var n = answerCount();
+    if (n >= 4) {
+      aiSay('好的，本次面试到这里。我会根据你的回答生成一份能力维度报告，请稍等。', function () {
+        setTimeout(finish, 500);
+      });
+    } else {
+      aiSay(genFollowup(stageOfIv(iv), iv.difficulty || 'medium', n, text), null);
+    }
+  }
+
+  function updateChatProgress() {
+    // 重新渲染侧栏与顶部轮次
+    var n = answerCount();
+    var dots = '';
+    for (var i = 0; i < 4; i++) dots += '<i class="' + (i < n ? 'on' : (i === n ? 'cur' : '')) + '"></i>';
+    Array.prototype.forEach.call(app.querySelectorAll('.round-dots'), function (d) { d.innerHTML = dots; });
+    var tag = app.querySelector('.iv-head .tag');
+    if (tag) tag.textContent = '第 ' + Math.min(n + 1, 4) + ' / 4 轮';
+    Array.prototype.forEach.call(app.querySelectorAll('.iv-side .semibold'), function (el) {
+      if (/^\d+ \/ 4 轮$/.test(el.textContent)) el.textContent = n + ' / 4 轮';
+    });
+  }
+
+  function aiSay(text, cb) {
+    waiting = true;
+    paintMessages();
+    var delay = 850 + Math.min(text.length * 12, 900);
+    setTimeout(function () {
+      waiting = false;
+      if (!iv || iv.status !== 'ongoing') return;
+      iv.messages.push({ role: 'ai', text: text, at: C.nowStr() });
+      C.saveInterview(iv);
+      paintMessages();
+      updateChatProgress();
+      if (!cb) speak(text);        // AI 面试官语音播报（收尾语不读，开关关闭时不读）
+      if (cb) cb();
+    }, delay);
+  }
+
+  /* ================= 报告 ================= */
+  function makeReport() {
+    var dims = dimsOf(iv.subjectId);
+    var answers = answerTexts();
+    var avgLen = answers.length ? answers.reduce(function (n, t) { return n + t.length; }, 0) / answers.length : 0;
+    var rnd = function (n) { return Math.round((Math.random() - 0.5) * n); };
+    var base = answers.length
+      ? Math.max(42, Math.min(93, Math.round(50 + avgLen * 0.42 + rnd(8))))
+      : 0;
+    var ds = dims.map(function (name) {
+      return { name: name, score: Math.max(0, Math.min(98, base + rnd(16))) };
+    });
+    var overall = ds.length ? Math.round(ds.reduce(function (n, d) { return n + d.score; }, 0) / ds.length) : 0;
+
+    var summary, suggestions;
+    if (!answers.length) {
+      summary = '本次面试没有作答记录，无法评估能力表现。建议选择合适难度后完整参与 4 轮对话，报告会更有参考价值。';
+      suggestions = ['选择一个你熟悉的学科与难度，先完整参加一次 4 轮面试', '回答问题尽量给出具体做法，而不是只讲概念'];
+    } else if (overall >= 80) {
+      summary = '整体表现优秀：回答结构清晰、能结合具体做法展开，对' + dims.slice(0, 3).join('、') + '等维度理解到位。继续保持结构化表达，可以尝试更复杂的场景题。';
+      suggestions = ['准备 1-2 个可量化的项目结果，用数据支撑观点', '面对追问时先给结论，再补充理由与边界条件', '尝试总结一套自己的答题框架，保持稳定输出'];
+    } else if (overall >= 65) {
+      summary = '基础扎实，能说清核心概念，但在' + dims[dims.length - 1] + '等维度上还可以更具体。回答中“做了什么”比较清楚，“为什么这样做”和“结果如何”可以再补充。';
+      suggestions = ['每个回答补充“背景 - 做法 - 结果”三段结构', '针对薄弱维度准备一个真实案例', '多练习在 1 分钟内讲清一个技术方案'];
+    } else {
+      summary = '能表达出基本理解，但回答偏概念化、细节不足。建议先回到对应阶段补齐知识，再用具体案例练习表达。';
+      suggestions = ['先完成对应阶段课程与练习，再回来面试', '每个问题至少给出一个具体例子或做法', '把回答写下来再复述，训练结构化表达'];
+    }
+
+    return {
+      overall: overall,
+      status: 'completed',
+      dims: ds,
+      summary: summary,
+      suggestions: suggestions,
+      answered: answers.length
+    };
+  }
+
+  function finish() {
+    if (!iv || iv.status === 'completed') return;
+    stopSpeak();
+    if (listening) stopVoice(false);
+    iv.status = 'completed';
+    iv.finishedAt = C.nowStr();
+    iv.report = makeReport();
+    C.saveInterview(iv);
+    phase = 'report';
+    renderReport();
+    window.scrollTo(0, 0);
+  }
+
+  function renderReport() {
+    var sub = subjectOf(iv.subjectId);
+    var stage = stageOfIv(iv);
+    var diff = iv.difficulty ? diffOf(iv.difficulty) : null;
+    var title = iv.stageName || iv.topic || stage.name;
+    var rep = iv.report || makeReport();
+    var dims = rep.dims || [];
+    var level = rep.overall >= 80 ? '表现优秀' : rep.overall >= 65 ? '基础扎实' : rep.overall >= 45 ? '仍有提升空间' : '建议系统补强';
+    var levelColor = rep.overall >= 80 ? '#0B8A4B' : rep.overall >= 65 ? '#175CD3' : '#B54708';
+
+    var transcript = iv.messages.map(function (m) {
+      var ai = m.role === 'ai';
+      return '<div style="display:flex;gap:10px;margin-bottom:14px">' +
+        '<span class="avatar sm" style="' + (ai ? 'background:linear-gradient(135deg,#171A2E,#3A2C7A)' : '') + '">' + (ai ? 'AI' : UI.esc((user.nickname || '我').slice(0, 1))) + '</span>' +
+        '<div style="flex:1;min-width:0"><div class="small semibold">' + (ai ? 'AI 面试官' : '我') + ' <span class="tiny muted" style="font-weight:400">' + UI.fmtDate(m.at || '') + '</span></div>' +
+        '<div class="small" style="color:var(--ink-2);line-height:1.75;margin-top:3px">' + UI.esc(m.text) + '</div></div>' +
+      '</div>';
+    }).join('');
+
+    app.innerHTML =
+      '<div class="container page">' +
+        '<div class="crumb"><a href="records.html">面试记录</a><span class="sep">/</span><span>面试报告</span></div>' +
+        '<div class="report-hero">' +
+          '<div class="info">' +
+            '<div class="row gap-8 mb-8"><span class="tag" style="background:rgba(255,255,255,.14);color:#fff">' + UI.esc(sub.name) + '</span>' +
+              '<span class="tag" style="background:rgba(255,255,255,.14);color:#fff">' + UI.fmtDate(iv.finishedAt || iv.startedAt) + '</span>' +
+              (diff ? '<span class="tag" style="background:rgba(255,255,255,.14);color:#fff">' + diff.label + '难度</span>' : '') + '</div>' +
+            '<h2>' + UI.esc(title) + '</h2>' +
+            '<p>' + UI.esc(rep.summary) + '</p>' +
+            '<div class="row gap-8 mt-16"><span class="tag" style="background:rgba(255,255,255,.14);color:#fff">共 ' + (rep.answered != null ? rep.answered : answerCount()) + ' 轮回答</span>' +
+              (iv.mode === 'voice' ? '<span class="tag" style="background:rgba(255,255,255,.14);color:#fff">语音作答 · 已转写</span>' : '') +
+              '<span class="tag" style="background:rgba(255,255,255,.14);color:#fff">' + level + '</span></div>' +
+          '</div>' +
+          '<div style="position:relative;z-index:1;text-align:center;flex:none">' +
+            '<div style="width:120px;height:120px;border-radius:50%;background:conic-gradient(#8B7CFF ' + rep.overall + '%, rgba(255,255,255,.16) 0);display:flex;align-items:center;justify-content:center;position:relative">' +
+              '<div style="position:absolute;inset:9px;border-radius:50%;background:#221F45"></div>' +
+              '<div style="position:relative"><div style="font-size:32px;font-weight:800">' + rep.overall + '</div><div style="font-size:10.5px;color:rgba(255,255,255,.6)">总评</div></div>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+
+        '<div class="grid g2 mt-20" style="align-items:start">' +
+          '<div class="card">' +
+            '<div class="card-hd"><div class="card-title">能力维度</div>' +
+              '<span class="tag" style="background:' + hexA(levelColor, .12) + ';color:' + levelColor + '">' + level + '</span></div>' +
+            '<div class="card-pad"><div class="radar-wrap">' + UI.radarChart(dims.map(function (d) { return d.name; }), dims.map(function (d) { return d.score; })) + '</div></div>' +
+          '</div>' +
+          '<div class="card card-pad">' +
+            '<div class="card-title mb-16">维度得分</div>' +
+            dims.map(function (d) {
+              return '<div class="dim-row"><span class="nm">' + UI.esc(d.name) + '</span>' +
+                '<span class="bar"><i style="width:' + d.score + '%"></i></span>' +
+                '<span class="sc" style="color:' + UI.scoreColor(d.score) + '">' + d.score + '</span></div>';
+            }).join('') +
+            '<div class="divider"></div>' +
+            '<div class="card-title mb-8" style="font-size:13.5px">改进建议</div>' +
+            '<div class="col gap-8">' + (rep.suggestions || []).map(function (s, i) {
+              return '<div class="row" style="align-items:flex-start;gap:9px"><span class="tag tag-brand" style="height:20px;flex:none">' + (i + 1) + '</span>' +
+                '<span class="small" style="color:var(--ink-2);line-height:1.65">' + UI.esc(s) + '</span></div>';
+            }).join('') + '</div>' +
+          '</div>' +
+        '</div>' +
+
+        '<div class="card mt-16">' +
+          '<div class="card-hd"><div class="card-title">对话记录</div>' +
+            '<span class="small muted">' + iv.messages.length + ' 条消息' + (iv.mode === 'voice' ? ' · 语音转写' : '') + '</span></div>' +
+          '<div class="card-pad" style="max-height:420px;overflow:auto">' + transcript + '</div>' +
+        '</div>' +
+
+        '<div class="row mt-20" style="justify-content:space-between;gap:10px;flex-wrap:wrap">' +
+          '<a class="btn btn-ghost" href="records.html">' + UI.icon('chevronLeft', 14) + '返回记录</a>' +
+          '<div class="row gap-8">' +
+            '<button class="btn btn-ghost" data-again>' + UI.icon('refresh', 14) + '再面一次</button>' +
+            '<a class="btn btn-primary" href="interview.html">换个难度面试</a>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+
+    var again = app.querySelector('[data-again]');
+    if (again) again.addEventListener('click', function () {
+      startInterview(iv.subjectId, iv.difficulty || 'medium', iv.stageId);
+    });
+  }
+
+  /* ================= 开始 ================= */
+  function startInterview(sid, diffId, stageId) {
+    var stage = null;
+    if (stageId) {
+      var found = DATA.findStage(stageId);
+      if (found) stage = found.stage;
+    }
+    if (!stage) {
+      var src = stageFor(sid);
+      stage = src ? src.stage : null;
+    }
+    if (!stage) { UI.toast('该学科暂无可用阶段，请联系运营配置学习路线', 'err'); return; }
+    var diff = diffOf(diffId || 'medium');
+    if (!ACTIVE_DIFFS.some(function (d) { return d.id === diff.id; })) diff = ACTIVE_DIFFS[0] || diff;
+    iv = {
+      id: UI.uid('iv'),
+      subjectId: sid,
+      difficulty: diff.id,
+      difficultyLabel: diff.label,
+      stageId: stage.id,
+      stageName: stage.name,
+      topic: stage.name,
+      status: 'ongoing',
+      mode: 'voice',
+      startedAt: C.nowStr(),
+      finishedAt: null,
+      messages: [],
+      report: null
+    };
+    ongoing = iv;
+    C.saveInterview(iv);
+    enterChat();
+  }
+
+  /* ================= 路由 ================= */
+  if (viewId) {
+    var recIv = C.findInterview(viewId);
+    if (recIv && recIv.report) { iv = recIv; phase = 'report'; renderReport(); }
+    else { UI.toast('没有找到这份面试报告', 'err'); renderSetup(); }
+  } else {
+    // 恢复未完成面试
+    if (ongoing && !within24h(ongoing)) {
+      ongoing.status = 'expired';
+      C.saveInterview(ongoing);
+      ongoing = null;
+      UI.toast('上一场面试已超过 24 小时，已自动失效', 'info');
+    }
+    if (params.get('resume') === '1' && ongoing) {
+      iv = ongoing;
+      enterChat();
+    } else {
+      if (user.mainRoute) {
+        var r = DATA.findRoute(user.mainRoute);
+        if (r) selSubject = r.subjectId;
+      }
+      renderSetup();
+    }
+  }
+
+  /* ================= 事件 ================= */
+  app.addEventListener('click', function (e) {
+    var sp = e.target.closest('[data-speak]');
+    if (sp) {
+      var mi = Number(sp.getAttribute('data-speak'));
+      var m = iv && iv.messages ? iv.messages[mi] : null;
+      if (m) speak(m.text, true);
+      return;
+    }
+    var tt = e.target.closest('[data-tts]');
+    if (tt) {
+      ttsOn = !ttsOn;
+      Store.set('ivTts', ttsOn);
+      if (!ttsOn) stopSpeak();
+      syncTtsUI();
+      UI.toast(ttsOn ? '已开启 AI 语音朗读' : '已关闭 AI 语音朗读', 'info');
+      return;
+    }
+    var sj = e.target.closest('[data-subject]');
+    if (sj) { selSubject = sj.getAttribute('data-subject'); renderSetup(); return; }
+    var df = e.target.closest('[data-diff]');
+    if (df) { selDiff = df.getAttribute('data-diff'); renderSetup(); return; }
+    if (e.target.closest('[data-start]')) { startInterview(selSubject, selDiff); return; }
+    if (e.target.closest('[data-resume]')) {
+      iv = ongoing;
+      if (!iv) return;
+      enterChat();
+      return;
+    }
+    if (e.target.closest('[data-abandon]')) {
+      UI.confirm('放弃本场面试', '放弃后本场不会生成报告，记录中标记为“已放弃”。', function () {
+        ongoing.status = 'abandoned';
+        C.saveInterview(ongoing);
+        ongoing = null;
+        renderSetup();
+        UI.toast('已放弃本场面试', 'info');
+      }, '放弃', true);
+      return;
+    }
+  });
+
+  window.addEventListener('beforeunload', function () {
+    stopSpeak();
+    if (rec) { try { rec.abort(); } catch (e) {} }
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,23 @@
+spring:
+  datasource:
+    url: jdbc:mysql://${MYSQL_HOST:127.0.0.1}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:yunshu}?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC&useSSL=false&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true
+    username: ${MYSQL_USER:yunshu_app}
+    password: ${MYSQL_PASSWORD:change-me-app}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      pool-name: yunshu-hikari
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 3000
+
+logging:
+  level:
+    root: INFO
+    com.yunshu.zhixue: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%X{traceId:-}] %logger{40} - %msg%n"
+
+management:
+  endpoint:
+    health:
+      show-details: always

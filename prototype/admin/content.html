@@ -1,0 +1,664 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>内容管理 · 云枢智学运营台</title>
+<link rel="stylesheet" href="../assets/css/app.css">
+</head>
+<body class="admin-body">
+<div class="shell">
+  <aside class="sidebar" id="app-side"></aside>
+  <div class="main">
+    <header class="topbar" id="app-top"></header>
+    <main class="admin-page" id="app"></main>
+  </div>
+</div>
+
+<script src="../assets/js/data.js"></script>
+<script src="../assets/js/ui.js"></script>
+<script src="../assets/js/admin-shared.js"></script>
+<script>
+(function () {
+  var A = AdminApp;
+  A.renderShell('content', '内容管理', '维护学科、课程、题库与面试设置');
+  var app = document.getElementById('app');
+  var tab = 'subjects';
+  var kw = '';
+  var typeFilter = 'all';
+  var stageFilter = 'all';
+
+  function d() { return A.data(); }
+  function save() { A.save(d()); }
+  function stages() {
+    var out = [];
+    d().routes.forEach(function (r) {
+      var s = d().subjects.find(function (x) { return x.id === r.subjectId; });
+      r.stages.forEach(function (st) { out.push({ stage: st, route: r, subject: s }); });
+    });
+    return out;
+  }
+  function stageOptions(sel) {
+    return '<option value="">请选择阶段</option>' + stages().map(function (x) {
+      return '<option value="' + x.stage.id + '" ' + (sel === x.stage.id ? 'selected' : '') + '>' +
+        UI.esc((x.subject ? x.subject.name : '') + ' / ' + x.stage.name) + '</option>';
+    }).join('');
+  }
+  function trunc(s, n) {
+    s = String(s || '');
+    return s.length > n ? s.slice(0, n) + '…' : s;
+  }
+  function answerLabel(q) {
+    if (q.type === 'short') return 'AI 要点评分';
+    return (q.answer || []).map(function (i) { return String.fromCharCode(65 + i); }).join('、');
+  }
+  function routeNameOf(routeId) {
+    var r = d().routes.find(function (x) { return x.id === routeId; });
+    return r ? r.name : '—';
+  }
+
+  /* ================= 框架 ================= */
+  function render() {
+    var tabs = [
+      { key: 'subjects', label: '学科管理' },
+      { key: 'courses', label: '课程库' },
+      { key: 'questions', label: '刷题题库' },
+      { key: 'interview', label: '面试设置' }
+    ];
+    app.innerHTML =
+      '<div class="between wrap"><div><div class="admin-title">内容管理</div>' +
+        '<div class="admin-sub">内容修改会即时反映到学员端（同一浏览器内）。</div></div></div>' +
+      '<div class="tabs mt-16">' + tabs.map(function (t) {
+        return '<button data-tab="' + t.key + '" class="' + (tab === t.key ? 'active' : '') + '">' + t.label + '</button>';
+      }).join('') + '</div>' +
+      '<div id="tabBody"></div>';
+    var body = document.getElementById('tabBody');
+    if (tab === 'subjects') body.innerHTML = subjectsHtml();
+    if (tab === 'courses') body.innerHTML = coursesHtml();
+    if (tab === 'questions') { body.innerHTML = questionsHtml(); bindQuestionFilters(); }
+    if (tab === 'interview') body.innerHTML = interviewHtml();
+  }
+
+  /* ================= 学科 ================= */
+  function subjectsHtml() {
+    return '<div class="toolbar"><div class="search">' + UI.icon('search', 15) +
+        '<input class="input" id="sKw" placeholder="搜索学科名称" value="' + UI.esc(kw) + '"></div>' +
+        '<div style="flex:1"></div>' +
+        '<button class="btn btn-sm btn-primary" data-add-subject>' + UI.icon('plus', 14) + '新增学科</button></div>' +
+      '<div class="table-wrap"><table class="table"><thead><tr>' +
+        '<th>学科</th><th>标签</th><th>阶段</th><th>课程</th><th>题目</th><th style="text-align:right">操作</th></tr></thead><tbody>' +
+        d().subjects.filter(function (s) { return !kw || s.name.indexOf(kw) >= 0; }).map(function (s) {
+          var r = d().routes.find(function (x) { return x.subjectId === s.id; });
+          var st = r ? r.stages.length : 0;
+          var co = r ? r.stages.reduce(function (n, x) { return n + x.courses.length; }, 0) : 0;
+          var qn = r ? r.stages.reduce(function (n, x) { return n + x.questions.length; }, 0) : 0;
+          return '<tr><td><div class="td-main"><div class="tool-ic" style="background:' + s.color + '1a;color:' + s.color + ';width:34px;height:34px;border-radius:10px">' +
+              UI.icon(s.icon, 17) + '</div><div><div class="td-title">' + UI.esc(s.name) + '</div>' +
+              '<div class="td-sub">' + UI.esc(s.tagline) + '</div></div></div></td>' +
+            '<td><span class="tag tag-brand">' + UI.esc(s.badge) + '</span></td>' +
+            '<td class="mono">' + st + '</td><td class="mono">' + co + '</td><td class="mono">' + qn + '</td>' +
+            '<td><div class="actions"><button class="btn btn-sm btn-ghost" data-edit-subject="' + s.id + '">编辑</button></div></td></tr>';
+        }).join('') +
+      '</tbody></table></div>';
+  }
+
+  function subjectForm(id) {
+    var s = id ? d().subjects.find(function (x) { return x.id === id; }) : null;
+    UI.modal({
+      title: s ? '编辑学科' : '新增学科',
+      subtitle: s ? '修改后学员端立即生效' : '将同时创建一条对应的学习路线（阶段可在“学习路线”中添加）',
+      body:
+        '<div class="field"><label>学科名称<span class="req">*</span></label><input class="input" id="fName" value="' + UI.esc(s ? s.name : '') + '" placeholder="如：数据分析"></div>' +
+        '<div class="field"><label>一句话介绍</label><input class="input" id="fTag" value="' + UI.esc(s ? s.tagline : '') + '" placeholder="展示在路线卡片上"></div>' +
+        '<div class="field"><label>学科描述</label><textarea class="textarea" id="fDesc" style="min-height:84px" placeholder="适合谁、能学到什么">' + UI.esc(s ? s.desc : '') + '</textarea></div>' +
+        '<div class="field"><label>标签</label><input class="input" id="fBadge" value="' + UI.esc(s ? s.badge : '新') + '" placeholder="如：热门 / 系统 / 经典"></div>',
+      actions: [
+        { label: '取消', cls: 'btn-ghost' },
+        { label: '保存', cls: 'btn-primary', onClick: function (ov) {
+            var name = ov.querySelector('#fName').value.trim();
+            if (!name) { UI.toast('请填写学科名称', 'err'); return false; }
+            if (s) {
+              s.name = name;
+              s.tagline = ov.querySelector('#fTag').value.trim();
+              s.desc = ov.querySelector('#fDesc').value.trim();
+              s.badge = ov.querySelector('#fBadge').value.trim() || '新';
+              A.log('学科管理', '编辑学科', name);
+            } else {
+              var sid = 'sub' + Date.now().toString(36);
+              d().subjects.push({
+                id: sid, name: name,
+                tagline: ov.querySelector('#fTag').value.trim(),
+                desc: ov.querySelector('#fDesc').value.trim(),
+                color: '#4F46E5', color2: '#7C3AED', icon: 'layers',
+                badge: ov.querySelector('#fBadge').value.trim() || '新'
+              });
+              d().routes.push({ id: 'route-' + sid, subjectId: sid, name: name + '学习路线', desc: '', stages: [] });
+              d().dimensions[sid] = ['基础理解', '工程实践', '问题分析', '表达沟通', '场景设计'];
+              d().topics[sid] = [];
+              A.log('学科管理', '新增学科', name);
+            }
+            save(); UI.toast('已保存'); render();
+          } }
+      ]
+    });
+  }
+
+  /* ================= 课程 ================= */
+  function coursesHtml() {
+    var list = DATA.allCourses().filter(function (x) {
+      var okKw = !kw || x.course.title.indexOf(kw) >= 0;
+      var okSt = stageFilter === 'all' || x.stage.id === stageFilter;
+      return okKw && okSt;
+    });
+    return '<div class="toolbar">' +
+        '<div class="search">' + UI.icon('search', 15) + '<input class="input" id="cKw" placeholder="搜索课程名称" value="' + UI.esc(kw) + '"></div>' +
+        '<select class="select" id="cStage"><option value="all">全部阶段</option>' + stages().map(function (x) {
+          return '<option value="' + x.stage.id + '" ' + (stageFilter === x.stage.id ? 'selected' : '') + '>' + UI.esc(x.stage.name) + '</option>';
+        }).join('') + '</select>' +
+        '<div style="flex:1"></div>' +
+        '<button class="btn btn-sm btn-primary" data-add-course>' + UI.icon('plus', 14) + '新增课程</button></div>' +
+      '<div class="table-wrap"><table class="table"><thead><tr>' +
+        '<th>课程名称</th><th>所属阶段</th><th>时长</th><th>视频链接</th><th style="text-align:right">操作</th></tr></thead><tbody>' +
+        (list.length ? list.map(function (x) {
+          return '<tr><td><div class="td-title">' + UI.esc(x.course.title) + '</div><div class="td-sub">' + UI.esc(x.course.id) + '</div></td>' +
+            '<td><div>' + UI.esc(x.stage.name) + '</div><div class="td-sub">' + UI.esc(routeNameOf(x.route.id)) + '</div></td>' +
+            '<td class="small muted">' + x.course.minutes + ' 分钟</td>' +
+            '<td><a class="small" style="color:var(--brand)" target="_blank" rel="noopener" href="' + UI.esc(x.course.url) + '">Bilibili 链接</a></td>' +
+            '<td><div class="actions"><button class="btn btn-sm btn-ghost" data-edit-course="' + x.course.id + '">编辑</button>' +
+              '<button class="btn btn-sm btn-ghost" style="color:var(--red)" data-del-course="' + x.course.id + '">删除</button></div></td></tr>';
+        }).join('') : '<tr><td colspan="5"><div class="empty" style="padding:30px">没有匹配的课程</div></td></tr>') +
+      '</tbody></table></div>' +
+      '<div class="pager"><span>共 ' + list.length + ' 门课程</span><span class="small muted">一门课程 = 一个视频链接</span></div>';
+  }
+
+  function courseForm(id) {
+    var f = id ? DATA.findCourse(id) : null;
+    UI.modal({
+      title: f ? '编辑课程' : '新增课程',
+      subtitle: f ? f.stage.name : '新增后会出现在对应阶段的课程列表中',
+      body:
+        (f ? '' : '<div class="field"><label>所属阶段<span class="req">*</span></label><select class="select" id="fcStage">' + stageOptions('') + '</select></div>') +
+        '<div class="field"><label>课程名称<span class="req">*</span></label><input class="input" id="fcTitle" value="' + UI.esc(f ? f.course.title : '') + '" placeholder="如：Agent 的核心循环"></div>' +
+        '<div class="field"><label>视频时长（分钟）</label><input class="input" id="fcMin" type="number" min="1" value="' + (f ? f.course.minutes : 30) + '"></div>' +
+        '<div class="field"><label>Bilibili 视频链接</label><input class="input" id="fcUrl" value="' + UI.esc(f ? f.course.url : 'https://www.bilibili.com/') + '" placeholder="https://www.bilibili.com/video/BV..."></div>' +
+        '<div class="hint">多课时请拆成多门课程，保持“课程 - 视频”一一对应。</div>',
+      actions: [
+        { label: '取消', cls: 'btn-ghost' },
+        { label: '保存', cls: 'btn-primary', onClick: function (ov) {
+            var title = ov.querySelector('#fcTitle').value.trim();
+            var min = Number(ov.querySelector('#fcMin').value) || 30;
+            var url = ov.querySelector('#fcUrl').value.trim() || 'https://www.bilibili.com/';
+            if (!title) { UI.toast('请填写课程名称', 'err'); return false; }
+            if (f) {
+              f.course.title = title; f.course.minutes = min; f.course.url = url;
+              A.log('课程库', '编辑课程', title);
+            } else {
+              var sid = ov.querySelector('#fcStage').value;
+              if (!sid) { UI.toast('请选择所属阶段', 'err'); return false; }
+              var st = DATA.findStage(sid);
+              if (!st) return false;
+              st.stage.courses.push({ id: UI.uid('c'), title: title, minutes: min, url: url });
+              A.log('课程库', '新增课程', title);
+            }
+            save(); UI.toast('已保存'); render();
+          } }
+      ]
+    });
+  }
+
+  /* ================= 题库 ================= */
+  function questionsHtml() {
+    var list = DATA.allQuestions().filter(function (x) {
+      var q = x.question;
+      var okKw = !kw || q.stem.indexOf(kw) >= 0;
+      var okType = typeFilter === 'all' || q.type === typeFilter;
+      var okSt = stageFilter === 'all' || x.stage.id === stageFilter;
+      return okKw && okType && okSt;
+    });
+    return '<div class="toolbar">' +
+        '<div class="search">' + UI.icon('search', 15) + '<input class="input" id="qKw" placeholder="搜索题干" value="' + UI.esc(kw) + '"></div>' +
+        '<select class="select" id="qType"><option value="all">全部题型</option>' +
+          ['judge', 'single', 'multi', 'short'].map(function (t) {
+            return '<option value="' + t + '" ' + (typeFilter === t ? 'selected' : '') + '>' + UI.typeLabel(t) + '</option>';
+          }).join('') + '</select>' +
+        '<select class="select" id="qStage"><option value="all">全部阶段</option>' + stages().map(function (x) {
+          return '<option value="' + x.stage.id + '" ' + (stageFilter === x.stage.id ? 'selected' : '') + '>' + UI.esc(x.stage.name) + '</option>';
+        }).join('') + '</select>' +
+        '<div style="flex:1"></div>' +
+        '<button class="btn btn-sm btn-ghost" data-import>' + UI.icon('upload', 14) + '导入题目</button>' +
+        '<button class="btn btn-sm btn-primary" data-add-question>' + UI.icon('plus', 14) + '新增题目</button></div>' +
+      '<div class="table-wrap"><table class="table" style="min-width:860px"><thead><tr>' +
+        '<th>题干</th><th>题型</th><th>答案</th><th>所属阶段</th><th style="text-align:right">操作</th></tr></thead><tbody>' +
+        (list.length ? list.map(function (x) {
+          var q = x.question;
+          return '<tr><td style="max-width:360px"><div class="td-title" style="font-weight:500">' + UI.esc(trunc(q.stem, 46)) + '</div>' +
+              '<div class="td-sub">' + UI.esc(q.id) + '</div></td>' +
+            '<td><span class="tag ' + (q.type === 'short' ? 'tag-amber' : 'tag-brand') + '">' + UI.typeLabel(q.type) + '</span></td>' +
+            '<td class="mono small">' + UI.esc(answerLabel(q)) + '</td>' +
+            '<td class="small muted">' + UI.esc(x.stage.name) + '</td>' +
+            '<td><div class="actions">' +
+              '<button class="btn btn-sm btn-ghost" data-view-q="' + q.id + '">查看</button>' +
+              '<button class="btn btn-sm btn-ghost" data-edit-q="' + q.id + '">编辑</button>' +
+              '<button class="btn btn-sm btn-ghost" style="color:var(--red)" data-del-q="' + q.id + '">删除</button>' +
+            '</div></td></tr>';
+        }).join('') : '<tr><td colspan="5"><div class="empty" style="padding:30px">没有匹配的题目</div></td></tr>') +
+      '</tbody></table></div>' +
+      '<div class="pager"><span>共 ' + list.length + ' 道题</span><span class="small muted">题目只属于一个阶段，不支持跨阶段复用</span></div>';
+  }
+
+  function bindQuestionFilters() {
+    var qk = document.getElementById('qKw');
+    if (qk) {
+      var t;
+      qk.addEventListener('input', function () {
+        clearTimeout(t);
+        t = setTimeout(function () { kw = qk.value.trim(); render(); }, 220);
+      });
+    }
+    var qt = document.getElementById('qType');
+    if (qt) qt.addEventListener('change', function () { typeFilter = qt.value; render(); });
+    var qs = document.getElementById('qStage');
+    if (qs) qs.addEventListener('change', function () { stageFilter = qs.value; render(); });
+  }
+
+  function questionForm(id) {
+    var f = id ? DATA.findQuestion(id) : null;
+    var q = f ? f.question : { type: 'single', stem: '', options: ['', ''], answer: [], explanation: '' };
+    var isShort = q.type === 'short';
+    UI.modal({
+      title: f ? '编辑题目' : '新增题目',
+      subtitle: f ? UI.esc(f.stage.name) : '题目只属于一个阶段',
+      wide: true,
+      body:
+        (f ? '' : '<div class="field"><label>所属阶段<span class="req">*</span></label><select class="select" id="fqStage">' + stageOptions('') + '</select></div>') +
+        '<div class="grid g2" style="gap:0 14px">' +
+          '<div class="field"><label>题型<span class="req">*</span></label><select class="select" id="fqType">' +
+            ['judge', 'single', 'multi', 'short'].map(function (t) {
+              return '<option value="' + t + '" ' + (q.type === t ? 'selected' : '') + '>' + UI.typeLabel(t) + '</option>';
+            }).join('') + '</select></div>' +
+          '<div class="field"><label>正确答案</label><input class="input" id="fqAnswer" value="' + UI.esc((q.answer || []).map(function (i) { return String.fromCharCode(65 + i); }).join(',')) + '" placeholder="如 A 或 A,C"></div>' +
+        '</div>' +
+        '<div class="field"><label>题干<span class="req">*</span></label><textarea class="textarea" id="fqStem" style="min-height:72px" placeholder="请输入题干">' + UI.esc(q.stem) + '</textarea></div>' +
+        '<div class="field" id="fqOptWrap"><label>选项（每行一个）</label><textarea class="textarea" id="fqOpts" style="min-height:110px" placeholder="选项 A&#10;选项 B">' + UI.esc((q.options || []).join('\n')) + '</textarea>' +
+          '<div class="hint">判断题固定为“正确 / 错误”，可留空自动填充。</div></div>' +
+        '<div class="field"><label>答案解析</label><textarea class="textarea" id="fqExp" style="min-height:70px" placeholder="作答后展示给学员">' + UI.esc(q.explanation || '') + '</textarea></div>' +
+        '<div id="fqShortWrap" class="' + (isShort ? '' : 'hide') + '">' +
+          '<div class="field"><label>参考要点（每行：要点|分值|关键词1,关键词2）</label><textarea class="textarea" id="fqPoints" style="min-height:90px">' +
+            UI.esc((q.points || []).map(function (p) { return p.text + '|' + p.score + '|' + p.keywords.join(','); }).join('\n')) + '</textarea></div>' +
+          '<div class="field"><label>参考答案</label><textarea class="textarea" id="fqRef" style="min-height:70px">' + UI.esc(q.reference || '') + '</textarea></div>' +
+        '</div>',
+      actions: [
+        { label: '取消', cls: 'btn-ghost' },
+        { label: '保存', cls: 'btn-primary', onClick: function (ov) {
+            var type = ov.querySelector('#fqType').value;
+            var stem = ov.querySelector('#fqStem').value.trim();
+            if (!stem) { UI.toast('请填写题干', 'err'); return false; }
+            var target = f ? f.stage : (DATA.findStage(ov.querySelector('#fqStage').value) || {}).stage;
+            if (!target) { UI.toast('请选择所属阶段', 'err'); return false; }
+
+            var opts = [];
+            var ans = [];
+            if (type === 'short') {
+              var pts = ov.querySelector('#fqPoints').value.split('\n').map(function (line) {
+                var p = line.split('|');
+                if (!p[0] || !p[0].trim()) return null;
+                return { text: p[0].trim(), score: Number(p[1]) || 0, keywords: (p[2] || '').split(',').map(function (k) { return k.trim(); }).filter(Boolean) };
+              }).filter(Boolean);
+              var ref = ov.querySelector('#fqRef').value.trim();
+              if (!pts.length) { UI.toast('简答题至少需要一个评分要点', 'err'); return false; }
+              if (!ref) { UI.toast('请填写参考答案', 'err'); return false; }
+            } else {
+              opts = ov.querySelector('#fqOpts').value.split('\n').map(function (s) { return s.trim(); }).filter(Boolean);
+              if (type === 'judge' && opts.length < 2) opts = ['正确', '错误'];
+              if (opts.length < 2) { UI.toast('至少需要两个选项', 'err'); return false; }
+              ans = ov.querySelector('#fqAnswer').value.toUpperCase().split(/[,，\s]+/).filter(Boolean).map(function (x) {
+                return x.charCodeAt(0) - 65;
+              }).filter(function (i) { return i >= 0 && i < opts.length; });
+              if (!ans.length) { UI.toast('请填写正确答案，如 A 或 A,C', 'err'); return false; }
+              if (type === 'single' && ans.length > 1) { UI.toast('单选题只能有一个正确答案', 'err'); return false; }
+            }
+
+            if (f) {
+              // 移动阶段
+              if (target.id !== f.stage.id) {
+                var oi = f.stage.questions.indexOf(q);
+                f.stage.questions.splice(oi, 1);
+                target.questions.push(q);
+              }
+              q.stageId = target.id;
+              q.type = type; q.stem = stem;
+              if (type === 'short') {
+                q.options = undefined;
+                q.answer = undefined;
+                q.points = ov.querySelector('#fqPoints').value.split('\n').map(function (line) {
+                  var p = line.split('|');
+                  if (!p[0] || !p[0].trim()) return null;
+                  return { text: p[0].trim(), score: Number(p[1]) || 0, keywords: (p[2] || '').split(',').map(function (k) { return k.trim(); }).filter(Boolean) };
+                }).filter(Boolean);
+                q.reference = ov.querySelector('#fqRef').value.trim();
+                delete q.explanation;
+              } else {
+                q.options = opts; q.answer = ans;
+                q.explanation = ov.querySelector('#fqExp').value.trim();
+                delete q.points; delete q.reference;
+              }
+              A.log('刷题题库', '编辑题目', trunc(stem, 18));
+            } else {
+              var nq = { id: UI.uid(target.id + '-q'), stageId: target.id, type: type, stem: stem };
+              if (type === 'short') {
+                nq.points = ov.querySelector('#fqPoints').value.split('\n').map(function (line) {
+                  var p = line.split('|');
+                  if (!p[0] || !p[0].trim()) return null;
+                  return { text: p[0].trim(), score: Number(p[1]) || 0, keywords: (p[2] || '').split(',').map(function (k) { return k.trim(); }).filter(Boolean) };
+                }).filter(Boolean);
+                nq.reference = ov.querySelector('#fqRef').value.trim();
+              } else {
+                nq.options = opts; nq.answer = ans;
+                nq.explanation = ov.querySelector('#fqExp').value.trim();
+              }
+              target.questions.push(nq);
+              A.log('刷题题库', '新增题目', trunc(stem, 18));
+            }
+            save(); UI.toast('已保存'); render();
+          } }
+      ]
+    });
+    var typeSel = document.getElementById('fqType');
+    if (typeSel) typeSel.addEventListener('change', function () {
+      document.getElementById('fqShortWrap').classList.toggle('hide', typeSel.value !== 'short');
+      document.getElementById('fqOptWrap').classList.toggle('hide', typeSel.value === 'short');
+      if (typeSel.value === 'judge') {
+        var o = document.getElementById('fqOpts');
+        if (!o.value.trim()) o.value = '正确\n错误';
+      }
+    });
+  }
+
+  function viewQuestion(id) {
+    var f = DATA.findQuestion(id);
+    if (!f) return;
+    var q = f.question;
+    var body = '<div class="row gap-8 mb-12"><span class="tag tag-brand">' + UI.typeLabel(q.type) + '</span>' +
+      '<span class="tag">' + UI.esc(f.stage.name) + '</span></div>' +
+      '<div class="q-stem" style="font-size:16px">' + UI.esc(q.stem) + '</div>' +
+      (q.type === 'short'
+        ? '<div class="fb-points">' + (q.points || []).map(function (p) {
+            return '<div class="fb-point"><span class="ok">' + UI.icon('check', 13) + '</span><span>' + UI.esc(p.text) + '（' + p.score + ' 分）<span class="muted"> · ' + UI.esc(p.keywords.join(' / ')) + '</span></span></div>';
+          }).join('') + '</div>' +
+          '<div class="explain mt-12"><b>参考答案：</b>' + UI.esc(q.reference) + '</div>'
+        : '<div class="mt-12">' + q.options.map(function (o, i) {
+            var right = (q.answer || []).indexOf(i) >= 0;
+            return '<div class="opt ' + (right ? 'correct' : 'dim') + '" style="cursor:default;margin-bottom:8px"><span class="k">' + String.fromCharCode(65 + i) + '</span><span>' + UI.esc(o) + '</span></div>';
+          }).join('') + '</div>' +
+          '<div class="explain mt-12"><b>解析：</b>' + UI.esc(q.explanation || '—') + '</div>');
+    UI.modal({ title: '题目详情', subtitle: q.id, body: body, wide: true, actions: [{ label: '关闭', cls: 'btn-ghost' }] });
+  }
+
+  function importQuestions() {
+    var m = UI.modal({
+      title: '导入题目',
+      subtitle: '支持 Excel / CSV 模板批量导入',
+      body:
+        '<div class="field"><label>导入到阶段<span class="req">*</span></label><select class="select" id="imStage">' + stageOptions('') + '</select></div>' +
+        '<div class="field"><label>题目文件</label>' +
+          '<label class="card card-pad" style="display:flex;align-items:center;gap:12px;cursor:pointer;border-style:dashed;box-shadow:none">' +
+            '<div class="tool-ic ic-blue">' + UI.icon('upload', 18) + '</div>' +
+            '<div><div class="semibold" style="font-size:13px">点击选择文件</div><div class="tiny muted">.xlsx / .csv，单次最多 200 条</div></div>' +
+            '<input type="file" id="imFile" accept=".xlsx,.xls,.csv" style="display:none">' +
+          '</label>' +
+          '<div class="small muted mt-8" id="imName">未选择文件</div>' +
+        '</div>' +
+        '<div class="between"><span class="small muted">列：题型 / 题干 / 选项 / 答案 / 解析</span>' +
+          '<a href="#" class="small" id="imTpl" style="color:var(--brand);font-weight:600">下载模板</a></div>' +
+        '<div id="imResult" class="mt-12"></div>',
+      actions: [
+        { label: '取消', cls: 'btn-ghost' },
+        { label: '开始导入', cls: 'btn-primary', onClick: function (ov) {
+            var stageId = ov.querySelector('#imStage').value;
+            if (!stageId) { UI.toast('请选择导入阶段', 'err'); return false; }
+            if (!ov.querySelector('#imFile').files.length) { UI.toast('请先选择文件', 'err'); return false; }
+            var box = ov.querySelector('#imResult');
+            box.innerHTML = '<div class="feedback warn" style="margin:0"><span class="ai-judging"><span class="spinner"></span>正在解析文件并按题型校验…</span></div>';
+            setTimeout(function () {
+              box.innerHTML = '<div class="feedback ok" style="margin:0">' +
+                '<div class="fb-head">' + UI.icon('check', 15) + '导入完成</div>' +
+                '<div class="fb-body">识别 14 条：成功 12 条，跳过 2 条（题干重复）。<br>' +
+                '<span class="tiny muted">原型演示：仅模拟解析与校验过程，未写入本地题库。</span></div></div>';
+              UI.toast('导入完成：成功 12 条');
+              A.log('刷题题库', '导入题目', DATA.findStage(stageId).stage.name + '（12 条）');
+            }, 1300);
+            return false;
+          } }
+      ]
+    });
+    var ov = m.el;
+    var file = ov.querySelector('#imFile');
+    file.addEventListener('change', function () {
+      ov.querySelector('#imName').textContent = file.files[0] ? file.files[0].name : '未选择文件';
+    });
+    ov.querySelector('#imTpl').addEventListener('click', function (e) {
+      e.preventDefault();
+      var csv = '﻿题型,题干,选项A,选项B,选项C,选项D,答案,解析\n单选题,示例题干,选项一,选项二,选项三,选项四,A,示例解析\n';
+      var blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = '题库导入模板.csv';
+      a.click();
+      setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+    });
+  }
+
+  /* ================= 面试设置 ================= */
+  function ivcfg() {
+    var c = d();
+    if (!c.ivcfg || !c.ivcfg.diffs || !c.ivcfg.diffs.length) {
+      c.ivcfg = {
+        rounds: 4,
+        diffs: [
+          { id: 'easy', label: '简单', enabled: true, color: '#0B8A4B', bg: '#ECFDF3', desc: '围绕基础概念与课程要点提问，确认你是否真正理解。', tags: ['基础概念', '直接提问', '确认理解'] },
+          { id: 'medium', label: '中等', enabled: true, color: '#B54708', bg: '#FFFAEB', desc: '结合课程场景追问做法与原因，考察设计与取舍。', tags: ['场景应用', '做法与原因', '设计取舍'] },
+          { id: 'hard', label: '困难', enabled: true, color: '#B42318', bg: '#FEECEB', desc: '深入真实项目与边界条件，追问兜底与效果衡量。', tags: ['项目落地', '失败兜底', '效果衡量'] }
+        ]
+      };
+      save();
+    }
+    return c.ivcfg;
+  }
+
+  function interviewHtml() {
+    var cfg = ivcfg();
+    var enabled = cfg.diffs.filter(function (x) { return x.enabled !== false; }).length;
+
+    var diffCards = cfg.diffs.map(function (x) {
+      var on = x.enabled !== false;
+      return '<div class="card card-pad" style="border-color:' + (on ? 'var(--line)' : 'var(--line-2)') + ';' + (on ? '' : 'opacity:.62;background:#FAFAFC;') + '">' +
+        '<div class="between"><div class="row gap-8"><span style="width:9px;height:9px;border-radius:50%;background:' + x.color + '"></span>' +
+          '<b style="font-size:14px">' + UI.esc(x.label) + '</b></div>' +
+          '<span class="tag" style="background:' + (on ? x.bg : '#F2F3F7') + ';color:' + (on ? x.color : 'var(--muted)') + '">' + (on ? '启用中' : '已停用') + '</span></div>' +
+        '<div class="small muted" style="line-height:1.65;min-height:56px;margin-top:8px">' + UI.esc(x.desc) + '</div>' +
+        '<div class="row gap-6 wrap mt-10">' + (x.tags || []).map(function (t) {
+          return '<span class="tag" style="background:' + x.bg + ';color:' + x.color + '">' + UI.esc(t) + '</span>';
+        }).join('') + '</div>' +
+        '<div class="between mt-16"><span class="tiny muted">固定 4 轮 · 开场 1 + 追问 3</span>' +
+          '<span class="row gap-6">' +
+            '<button class="btn btn-sm btn-ghost" data-edit-diff="' + x.id + '">编辑</button>' +
+            '<button class="btn btn-sm ' + (on ? 'btn-ghost' : 'btn-soft') + '" data-toggle-diff="' + x.id + '">' + (on ? '停用' : '启用') + '</button>' +
+          '</span></div>' +
+      '</div>';
+    }).join('');
+
+    var dimCards = d().subjects.map(function (s) {
+      var dims = d().dimensions[s.id] || [];
+      return '<div class="card-pad" style="border:1px solid var(--line);border-radius:12px">' +
+        '<div class="between"><div class="row gap-10">' +
+          '<div class="tool-ic" style="width:32px;height:32px;border-radius:9px;background:' + s.color + '1a;color:' + s.color + '">' + UI.icon(s.icon, 16) + '</div>' +
+          '<div><b style="font-size:13.5px">' + UI.esc(s.name) + '</b><div class="tiny muted">' + dims.length + ' 个考察维度</div></div></div>' +
+          '<button class="btn btn-sm btn-soft" data-dim-add="' + s.id + '">' + UI.icon('plus', 12) + '添加</button></div>' +
+        '<div class="row gap-6 wrap mt-12">' + (dims.length ? dims.map(function (x, i) {
+          return '<span class="tag tag-brand" style="padding-right:4px">' + UI.esc(x) +
+            '<button data-dim-del="' + s.id + '|' + i + '" title="删除维度" style="border:0;background:transparent;color:inherit;cursor:pointer;font-size:13px;line-height:1;padding:2px 4px;opacity:.6">×</button></span>';
+        }).join('') : '<span class="small muted">暂无维度</span>') + '</div>' +
+        '<input class="input mt-12" id="dimNew_' + s.id + '" placeholder="输入新维度名称，如：项目经验" style="height:34px;font-size:13px">' +
+      '</div>';
+    }).join('');
+
+    return '<div class="card card-pad mb-16" style="background:linear-gradient(160deg,#171A2E,#2A2450);color:#fff;border:0">' +
+        '<div class="between wrap" style="gap:14px">' +
+          '<div class="row gap-12">' +
+            '<div class="tool-ic" style="width:40px;height:40px;border-radius:12px;background:rgba(255,255,255,.14);color:#fff">' + UI.icon('sparkles', 20) + '</div>' +
+            '<div><div style="font-size:15px;font-weight:700">面试题由大模型实时生成</div>' +
+              '<div class="small" style="color:rgba(255,255,255,.68);line-height:1.65;margin-top:3px;max-width:620px">出题依据：学员当前阶段的已学课程内容 + 上一轮回答。运营只需维护难度档位与考察维度，无需维护固定题库。</div></div>' +
+          '</div>' +
+          '<span class="tag" style="background:rgba(255,255,255,.14);color:#fff">每场固定 4 轮</span>' +
+        '</div>' +
+      '</div>' +
+
+      '<div class="card mb-16">' +
+        '<div class="card-hd"><div><div class="card-title">难度档位</div>' +
+          '<div class="small muted" style="margin-top:2px">控制提问深度；停用的难度不会出现在学员端</div></div>' +
+          '<span class="tag tag-brand">' + enabled + ' / ' + cfg.diffs.length + ' 启用</span></div>' +
+        '<div class="card-pad"><div class="grid g3">' + diffCards + '</div></div>' +
+      '</div>' +
+
+      '<div class="card">' +
+        '<div class="card-hd"><div><div class="card-title">考察维度</div>' +
+          '<div class="small muted" style="margin-top:2px">按学科配置，用于生成面试报告中的维度得分（至少保留 2 个）</div></div></div>' +
+        '<div class="card-pad"><div class="grid g3">' + dimCards + '</div></div>' +
+      '</div>';
+  }
+
+  function diffForm(id) {
+    var cfg = ivcfg();
+    var x = cfg.diffs.find(function (y) { return y.id === id; });
+    if (!x) return;
+    UI.modal({
+      title: '编辑「' + x.label + '」难度',
+      subtitle: '描述与考察重点会展示在学员端难度卡片上',
+      body:
+        '<div class="field"><label>难度描述<span class="req">*</span></label><textarea class="textarea" id="fdDesc" style="min-height:70px">' + UI.esc(x.desc) + '</textarea></div>' +
+        '<div class="field"><label>考察重点（用逗号分隔，最多 4 个）</label><input class="input" id="fdTags" value="' + UI.esc((x.tags || []).join('，')) + '" placeholder="如：基础概念，直接提问"></div>',
+      actions: [
+        { label: '取消', cls: 'btn-ghost' },
+        { label: '保存', cls: 'btn-primary', onClick: function (ov) {
+            var desc = ov.querySelector('#fdDesc').value.trim();
+            if (!desc) { UI.toast('难度描述不能为空', 'err'); return false; }
+            var tags = ov.querySelector('#fdTags').value.split(/[，,]/).map(function (t) { return t.trim(); }).filter(Boolean).slice(0, 4);
+            x.desc = desc;
+            x.tags = tags;
+            A.log('面试设置', '编辑难度描述', x.label);
+            save(); UI.toast('已保存'); render();
+          } }
+      ]
+    });
+  }
+
+  /* ================= 事件 ================= */
+  app.addEventListener('click', function (e) {
+    var t = e.target.closest('[data-tab]');
+    if (t) { tab = t.getAttribute('data-tab'); kw = ''; typeFilter = 'all'; stageFilter = 'all'; render(); return; }
+    if (e.target.closest('[data-add-subject]')) { subjectForm(null); return; }
+    var es = e.target.closest('[data-edit-subject]');
+    if (es) { subjectForm(es.getAttribute('data-edit-subject')); return; }
+
+    if (e.target.closest('[data-add-course]')) { courseForm(null); return; }
+    var ec = e.target.closest('[data-edit-course]');
+    if (ec) { courseForm(ec.getAttribute('data-edit-course')); return; }
+    var dc = e.target.closest('[data-del-course]');
+    if (dc) {
+      var id = dc.getAttribute('data-del-course');
+      var f = DATA.findCourse(id);
+      if (!f) return;
+      UI.confirm('删除课程', '确定删除《' + UI.esc(f.course.title) + '》吗？学员端该课程的学习状态将不再展示。', function () {
+        f.stage.courses.splice(f.stage.courses.indexOf(f.course), 1);
+        A.log('课程库', '删除课程', f.course.title);
+        save(); UI.toast('已删除'); render();
+      }, '删除', true);
+      return;
+    }
+
+    if (e.target.closest('[data-add-question]')) { questionForm(null); return; }
+    if (e.target.closest('[data-import]')) { importQuestions(); return; }
+    var vq = e.target.closest('[data-view-q]');
+    if (vq) { viewQuestion(vq.getAttribute('data-view-q')); return; }
+    var eq = e.target.closest('[data-edit-q]');
+    if (eq) { questionForm(eq.getAttribute('data-edit-q')); return; }
+    var dq = e.target.closest('[data-del-q]');
+    if (dq) {
+      var qid = dq.getAttribute('data-del-q');
+      var fq = DATA.findQuestion(qid);
+      if (!fq) return;
+      UI.confirm('删除题目', '删除后不可恢复，学员错题本中该题也会失效。', function () {
+        fq.stage.questions.splice(fq.stage.questions.indexOf(fq.question), 1);
+        A.log('刷题题库', '删除题目', trunc(fq.question.stem, 18));
+        save(); UI.toast('已删除'); render();
+      }, '删除', true);
+      return;
+    }
+
+    var ed = e.target.closest('[data-edit-diff]');
+    if (ed) { diffForm(ed.getAttribute('data-edit-diff')); return; }
+
+    var td = e.target.closest('[data-toggle-diff]');
+    if (td) {
+      var cfg = ivcfg();
+      var item = cfg.diffs.find(function (x) { return x.id === td.getAttribute('data-toggle-diff'); });
+      if (!item) return;
+      var onCount = cfg.diffs.filter(function (x) { return x.enabled !== false; }).length;
+      if (item.enabled !== false && onCount <= 1) { UI.toast('至少保留一个启用中的难度', 'err'); return; }
+      item.enabled = item.enabled === false;
+      A.log('面试设置', item.enabled ? '启用难度' : '停用难度', item.label);
+      save(); UI.toast(item.enabled ? '已启用' : '已停用'); render();
+      return;
+    }
+
+    var da = e.target.closest('[data-dim-add]');
+    if (da) {
+      var sid = da.getAttribute('data-dim-add');
+      var inp = document.getElementById('dimNew_' + sid);
+      var val = inp ? inp.value.trim() : '';
+      if (!val) { UI.toast('请输入维度名称', 'err'); if (inp) inp.focus(); return; }
+      if (!d().dimensions[sid]) d().dimensions[sid] = [];
+      if (d().dimensions[sid].indexOf(val) >= 0) { UI.toast('该维度已存在', 'err'); return; }
+      d().dimensions[sid].push(val);
+      A.log('面试设置', '新增考察维度', val);
+      save(); UI.toast('已添加'); render();
+      return;
+    }
+
+    var dd = e.target.closest('[data-dim-del]');
+    if (dd) {
+      var p = dd.getAttribute('data-dim-del').split('|');
+      var dimList = d().dimensions[p[0]] || [];
+      if (dimList.length <= 2) { UI.toast('每个学科至少保留 2 个考察维度', 'err'); return; }
+      var name = dimList[Number(p[1])];
+      UI.confirm('删除考察维度', '删除后，新生成的面试报告将不再包含「' + name + '」维度。', function () {
+        d().dimensions[p[0]].splice(Number(p[1]), 1);
+        A.log('面试设置', '删除考察维度', name);
+        save(); UI.toast('已删除'); render();
+      }, '删除', true);
+      return;
+    }
+  });
+
+  /* 搜索防抖（学科 / 课程） */
+  app.addEventListener('input', function (e) {
+    if (e.target.id === 'sKw' || e.target.id === 'cKw') {
+      var el = e.target;
+      clearTimeout(el._t);
+      el._t = setTimeout(function () {
+        kw = el.value.trim();
+        render();
+        var next = document.getElementById(el.id);
+        if (next) { next.focus(); next.setSelectionRange(next.value.length, next.value.length); }
+      }, 220);
+    }
+  });
+  app.addEventListener('change', function (e) {
+    if (e.target.id === 'cStage') { stageFilter = e.target.value; render(); }
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>

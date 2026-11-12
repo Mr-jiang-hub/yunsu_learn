@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>学习与面试记录 · 云枢智学</title>
+<link rel="stylesheet" href="../assets/css/app.css">
+</head>
+<body>
+<div id="app-header"></div>
+<main class="container page" id="app"></main>
+
+<script src="../assets/js/data.js"></script>
+<script src="../assets/js/ui.js"></script>
+<script src="../assets/js/c-shared.js"></script>
+<script>
+(function () {
+  var user = C.init('records');
+  if (!user) return;
+  var app = document.getElementById('app');
+  var tab = 'practice';
+
+  function stageInfo(p) {
+    var f = DATA.findStage(p.stageId);
+    if (!f) return { name: p.stageName || '未知阶段', subject: null, stage: null };
+    var subject = DATA.content().subjects.find(function (s) { return s.id === f.route.subjectId; }) || null;
+    return { name: f.stage.name, subject: subject, stage: f.stage };
+  }
+  function statusMeta(s) {
+    return {
+      completed: { label: '已完成', cls: 'tag-green' },
+      ongoing: { label: '进行中', cls: 'tag-blue' },
+      expired: { label: '已失效', cls: 'tag' },
+      abandoned: { label: '已放弃', cls: 'tag' }
+    }[s] || { label: s, cls: 'tag' };
+  }
+
+  function render() {
+    var practices = C.practices();
+    var ivs = C.interviews();
+    var completedIvs = ivs.filter(function (i) { return i.status === 'completed' && i.report; });
+    var avg = practices.length ? Math.round(practices.reduce(function (n, p) { return n + p.accuracy; }, 0) / practices.length) : 0;
+    var latestIv = completedIvs[0];
+
+    app.innerHTML =
+      '<div class="page-head"><div><div class="page-title">学习与面试记录</div>' +
+        '<div class="page-sub">阶段练习记录与 AI 面试历史，全部保留，可对比进步。</div></div>' +
+        '<a class="btn btn-ghost" href="quiz.html">' + UI.icon('edit', 15) + '去刷题</a></div>' +
+
+      '<div class="grid g4 mb-20">' +
+        '<div class="stat-card"><div class="lb">' + UI.icon('edit', 14) + '练习次数</div><div class="val">' + practices.length + '<small>次</small></div></div>' +
+        '<div class="stat-card"><div class="lb">' + UI.icon('target', 14) + '平均正确率</div><div class="val">' + avg + '<small>%</small></div></div>' +
+        '<div class="stat-card"><div class="lb">' + UI.icon('sparkles', 14) + '完成面试</div><div class="val">' + completedIvs.length + '<small>场</small></div></div>' +
+        '<div class="stat-card"><div class="lb">' + UI.icon('trophy', 14) + '最近总评</div><div class="val">' + (latestIv ? latestIv.report.overall : '—') + (latestIv ? '<small>分</small>' : '') + '</div></div>' +
+      '</div>' +
+
+      '<div class="between mb-16" style="flex-wrap:wrap;gap:12px">' +
+        '<div class="seg">' +
+          '<button data-tab="practice" class="' + (tab === 'practice' ? 'active' : '') + '">练习记录</button>' +
+          '<button data-tab="interview" class="' + (tab === 'interview' ? 'active' : '') + '">面试记录</button>' +
+        '</div>' +
+        (tab === 'interview' && completedIvs.length >= 2 ? '<button class="btn btn-sm btn-ghost" data-compare>' + UI.icon('chart', 14) + '对比最近两场</button>' : '') +
+      '</div>' +
+
+      '<div id="tabBody"></div>';
+
+    var body = document.getElementById('tabBody');
+    body.innerHTML = tab === 'practice' ? practiceHtml(practices) : interviewHtml(ivs);
+  }
+
+  function practiceHtml(list) {
+    if (!list.length) {
+      return '<div class="card">' + UI.emptyHtml('还没有练习记录', '去阶段练习里做一次题，这里会记录每次的正确率。', 'edit') +
+        '<div class="center" style="padding-bottom:30px"><a class="btn btn-primary" href="quiz.html">去刷题</a></div></div>';
+    }
+    var chrono = list.slice().reverse();
+    var labels = chrono.map(function (p) {
+      var d = UI.fmtDate(p.at);
+      return d.slice(5, 10);
+    });
+    var data = chrono.map(function (p) { return p.accuracy; });
+
+    return '<div class="card mb-16">' +
+        '<div class="card-hd"><div><div class="card-title">正确率趋势</div>' +
+          '<div class="small muted" style="margin-top:2px">最近 ' + chrono.length + ' 次阶段练习</div></div>' +
+          '<span class="tag tag-brand">平均 ' + Math.round(data.reduce(function (a, b) { return a + b; }, 0) / data.length) + '%</span></div>' +
+        '<div class="card-pad">' + UI.lineChart(labels, [{ data: data, color: '#4F46E5' }], { max: 100 }) + '</div>' +
+      '</div>' +
+      list.map(function (p) {
+        var s = stageInfo(p);
+        return '<div class="iv-record">' +
+          '<div class="iv-score" style="color:' + UI.scoreColor(p.accuracy) + ';background:' + (p.accuracy >= 80 ? 'var(--green-bg)' : p.accuracy >= 60 ? 'var(--amber-bg)' : 'var(--red-bg)') + '">' + p.accuracy + '<small>%</small></div>' +
+          '<div style="flex:1;min-width:0">' +
+            '<div class="semibold" style="font-size:14px">' + UI.esc(s.name) + '</div>' +
+            '<div class="small muted" style="margin-top:2px">' + (s.subject ? UI.esc(s.subject.name) + ' · ' : '') + '答对 ' + p.correct + ' / ' + p.total + ' 题 · ' + UI.fmtDate(p.at) + '</div>' +
+          '</div>' +
+          '<span class="tag ' + (p.accuracy >= 80 ? 'tag-green' : p.accuracy >= 60 ? 'tag-amber' : 'tag-red') + '">' + (p.accuracy >= 80 ? '掌握良好' : p.accuracy >= 60 ? '基本掌握' : '需要复习') + '</span>' +
+          '<a class="btn btn-sm btn-ghost" href="quiz.html?stage=' + encodeURIComponent(p.stageId) + '">再练一次</a>' +
+        '</div>';
+      }).join('');
+  }
+
+  function interviewHtml(list) {
+    if (!list.length) {
+      return '<div class="card">' + UI.emptyHtml('还没有面试记录', '做一次 AI 面试，系统会生成能力维度报告。', 'sparkles') +
+        '<div class="center" style="padding-bottom:30px"><a class="btn btn-primary" href="interview.html">开始 AI 面试</a></div></div>';
+    }
+    return list.map(function (i) {
+      var s = DATA.content().subjects.find(function (x) { return x.id === i.subjectId; }) || { name: '—' };
+      var st = statusMeta(i.status);
+      var score = i.report ? i.report.overall : null;
+      return '<div class="iv-record">' +
+        '<div class="iv-score" style="background:' + (score != null ? 'linear-gradient(135deg,#EEF0FF,#F3EEFF)' : '#F4F5F9') + ';color:' + (score != null ? 'var(--brand)' : 'var(--muted)') + '">' +
+          (score != null ? score : '—') + '<small>' + (score != null ? '总评' : '无报告') + '</small></div>' +
+        '<div style="flex:1;min-width:0">' +
+          '<div class="semibold" style="font-size:14px">' + UI.esc(i.topic) + '</div>' +
+          '<div class="small muted" style="margin-top:2px">' + UI.esc(s.name) + ' · ' + UI.fmtDate(i.finishedAt || i.startedAt) +
+            ' · ' + (i.messages ? i.messages.filter(function (m) { return m.role === 'me'; }).length : 0) + ' 轮回答' +
+            (i.difficultyLabel ? ' · ' + i.difficultyLabel + '难度' : '') +
+            (i.mode === 'voice' ? ' · 语音转写' : '') + '</div>' +
+        '</div>' +
+        '<span class="tag ' + st.cls + '">' + st.label + '</span>' +
+        (i.report
+          ? '<a class="btn btn-sm btn-primary" href="interview.html?id=' + encodeURIComponent(i.id) + '">查看报告</a>'
+          : i.status === 'ongoing'
+            ? '<a class="btn btn-sm btn-soft" href="interview.html">继续面试</a>'
+            : '<span class="small muted" style="min-width:64px;text-align:right">无报告</span>') +
+      '</div>';
+    }).join('');
+  }
+
+  function compare() {
+    var done = C.interviews().filter(function (i) { return i.status === 'completed' && i.report; });
+    if (done.length < 2) return;
+    var latest = done[0];
+    var same = done.filter(function (i) { return i.subjectId === latest.subjectId; });
+    var prev = same[1] || done[1];
+    var sub = DATA.content().subjects.find(function (x) { return x.id === latest.subjectId; }) || { name: '—' };
+
+    var rows = [{ name: '总评', a: prev.report.overall, b: latest.report.overall }];
+    (latest.report.dims || []).forEach(function (d) {
+      var old = (prev.report.dims || []).find(function (x) { return x.name === d.name; });
+      rows.push({ name: d.name, a: old ? old.score : null, b: d.score });
+    });
+
+    var body = '<div class="small muted mb-12">' + UI.esc(sub.name) + ' · ' + UI.fmtDate(prev.finishedAt || prev.startedAt) + ' → ' + UI.fmtDate(latest.finishedAt || latest.startedAt) + '</div>' +
+      '<div class="table-wrap"><table class="compare-table">' +
+        '<thead><tr><th>维度</th><th>上一场</th><th>最近一场</th><th>变化</th></tr></thead><tbody>' +
+        rows.map(function (r) {
+          var delta = r.a == null ? null : r.b - r.a;
+          var dt = delta == null ? '<span class="muted">—</span>' :
+            delta > 0 ? '<span class="delta-up">+' + delta + '</span>' :
+            delta < 0 ? '<span class="delta-down">' + delta + '</span>' : '<span class="muted">0</span>';
+          return '<tr><td>' + UI.esc(r.name) + '</td><td class="mono">' + (r.a == null ? '—' : r.a) + '</td><td class="mono semibold">' + r.b + '</td><td>' + dt + '</td></tr>';
+        }).join('') +
+      '</tbody></table></div>' +
+      '<div class="small muted mt-12">' + UI.icon('info', 12) + ' 仅对比最近两场同学科面试，维度口径一致。</div>';
+
+    UI.modal({ title: '面试进步对比', subtitle: '最近两场同方向面试', body: body, wide: true, actions: [{ label: '关闭', cls: 'btn-ghost' }] });
+  }
+
+  render();
+
+  app.addEventListener('click', function (e) {
+    var t = e.target.closest('[data-tab]');
+    if (t) { tab = t.getAttribute('data-tab'); render(); return; }
+    if (e.target.closest('[data-compare]')) compare();
+  });
+})();
+</script>
+</body>
+</html>

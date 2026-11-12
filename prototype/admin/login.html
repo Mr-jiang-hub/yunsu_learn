@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>运营后台登录 · 云枢智学</title>
+<link rel="stylesheet" href="../assets/css/app.css">
+</head>
+<body class="auth-body">
+  <div class="auth-shell" style="grid-template-columns:1fr 1fr;max-width:920px">
+    <aside class="auth-side" style="min-height:520px">
+      <div>
+        <div class="brand" style="color:#fff"><span class="brand-mark">云</span><span>云枢智学</span></div>
+        <h2>运营后台<br>内容 · 路线 · 学员</h2>
+        <p>维护学科、课程与题库，管理学习路线，查看学员学习与面试数据。</p>
+        <div class="auth-points">
+          <div class="auth-point"><span class="n">1</span><div>内容一处修改，学员端即时生效</div></div>
+          <div class="auth-point"><span class="n">2</span><div>按角色控制模块权限</div></div>
+          <div class="auth-point"><span class="n">3</span><div>关键操作自动写入日志</div></div>
+        </div>
+      </div>
+      <div class="small" style="color:rgba(255,255,255,.42)">原型演示 · 数据仅保存在本地浏览器</div>
+    </aside>
+
+    <main class="auth-main">
+      <h1>运营后台</h1>
+      <p class="sub">使用机构账号登录</p>
+
+      <form id="loginForm" autocomplete="off">
+        <div class="field">
+          <label>账号</label>
+          <input class="input" id="account" value="zhou" placeholder="请输入账号">
+        </div>
+        <div class="field">
+          <label>密码</label>
+          <input class="input" id="password" type="password" value="123456" placeholder="请输入密码">
+        </div>
+        <div class="field">
+          <label>角色</label>
+          <select class="select" id="roleSel">
+            <option>超级管理员</option>
+            <option>内容运营</option>
+            <option>学员运营</option>
+          </select>
+        </div>
+        <button class="btn btn-primary btn-lg btn-block" type="submit">进入运营台</button>
+      </form>
+
+      <div class="auth-hint">
+        演示账号：<b>zhou</b> / <b>123456</b>，可切换角色体验不同的模块入口。<br>
+        <a href="../c/login.html" style="color:var(--brand);font-weight:600">返回学员端登录</a>
+      </div>
+    </main>
+  </div>
+
+<script src="../assets/js/data.js"></script>
+<script src="../assets/js/ui.js"></script>
+<script src="../assets/js/admin-shared.js"></script>
+<script>
+(function () {
+  var roleSel = document.getElementById('roleSel');
+  document.getElementById('loginForm').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var acc = document.getElementById('account').value.trim();
+    var pwd = document.getElementById('password').value;
+    if (!acc) { UI.toast('请输入账号', 'err'); return; }
+    if (pwd.length < 6) { UI.toast('密码至少 6 位', 'err'); return; }
+    var role = roleSel.value;
+    AdminApp.setSession({
+      name: acc === 'zhou' ? '周老师' : (acc === 'chen' ? '陈内容' : acc === 'li' ? '李运营' : acc),
+      account: acc,
+      role: role
+    });
+    UI.toast('登录成功');
+    setTimeout(function () { location.href = 'dashboard.html'; }, 300);
+  });
+})();
+</script>
+</body>
+</html>

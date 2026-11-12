@@ -1,0 +1,53 @@
+/**
+ * 设计 token 抽取自 prototype/assets/css/app.css。
+ * C 端与 B 端共享同一套品牌色与圆角，避免两套视觉语言漂移。
+ */
+:root {
+  --brand: #4f46e5;
+  --brand-2: #7c3aed;
+  --brand-3: #22d3ee;
+  --ink: #0f1326;
+  --ink-2: #2a3142;
+  --muted: #6b7280;
+  --muted-2: #98a2b3;
+  --bg: #f5f6fa;
+  --card: #ffffff;
+  --line: #e7e9f2;
+  --line-2: #f0f2f8;
+  --green: #12b76a;
+  --green-bg: #e8f8f0;
+  --amber: #f79009;
+  --amber-bg: #fff6e6;
+  --red: #f04438;
+  --red-bg: #feeceb;
+  --blue: #2e90fa;
+  --blue-bg: #eaf3ff;
+  --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.05);
+  --shadow: 0 2px 8px rgba(16, 24, 40, 0.06), 0 12px 32px rgba(16, 24, 40, 0.05);
+  --shadow-lg: 0 24px 64px rgba(16, 24, 40, 0.18);
+  --r-sm: 10px;
+  --r: 14px;
+  --r-lg: 20px;
+  --r-xl: 28px;
+  --font: 'Inter', 'PingFang SC', 'HarmonyOS Sans SC', 'Microsoft YaHei', system-ui, -apple-system, sans-serif;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+}

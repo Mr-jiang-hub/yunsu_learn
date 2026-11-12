@@ -1,0 +1,1092 @@
+openapi: 3.1.0
+info:
+  title: 云枢智学 · B 端 API
+  version: 1.0.0
+  description: |
+    B 端 11 个业务模块 + 图片上传，共 69 个操作。统一响应、分页、错误与鉴权见 common.yaml；
+    字段语义与错误码见 docs/design/04.API接口设计.md。
+servers:
+  - url: /api/v1
+    description: B 端基础路径
+security:
+  - adminBearer: []
+tags:
+  - name: B-01
+    description: 后台认证
+  - name: B-02
+    description: 学科管理
+  - name: B-03
+    description: 课程管理
+  - name: B-04
+    description: 题库与导入
+  - name: B-05
+    description: 面试设置
+  - name: B-06
+    description: 学习路线与阶段
+  - name: B-07
+    description: 学员管理
+  - name: B-08
+    description: 后台账号
+  - name: B-09
+    description: 角色权限
+  - name: B-10
+    description: 操作日志
+  - name: B-11
+    description: 数据看板
+  - name: B-12
+    description: 图片上传
+
+paths:
+  /admin/auth/login:
+    post:
+      tags: [B-01]
+      summary: 后台登录
+      description: 成功后 refresh 经 Set-Cookie（ys_b_rt，HttpOnly）下发，不进响应体。
+      operationId: adminLogin
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './common.yaml#/components/schemas/AdminLoginRequest'
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
+
+  /admin/auth/token/refresh:
+    post:
+      tags: [B-01]
+      summary: 刷新后台 token
+      description: >-
+        无请求体。从 HttpOnly Cookie ys_b_rt 读取 refresh，轮换后重发 Set-Cookie；
+        20008/20009 失败时由服务端清除 Cookie。CSRF 说明见 02 §2.6。
+      operationId: refreshAdminToken
+      security: []
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+
+  /admin/auth/logout:
+    post:
+      tags: [B-01]
+      summary: 后台退出
+      description: 无请求体。撤销 Cookie 中的 refresh 并下发 Set-Cookie（Max-Age=0）清除；幂等。
+      operationId: adminLogout
+      security: []
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /admin/auth/me:
+    get:
+      tags: [B-01]
+      summary: 当前管理员、角色与模块
+      operationId: getAdminMe
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /admin/subjects:
+    get:
+      tags: [B-02]
+      summary: 学科列表
+      operationId: listSubjects
+      parameters:
+        - $ref: './common.yaml#/components/parameters/Page'
+        - $ref: './common.yaml#/components/parameters/Size'
+        - name: keyword
+          in: query
+          schema:
+            type: string
+            maxLength: 50
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [ENABLED, DISABLED]
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+    post:
+      tags: [B-02]
+      summary: 新增学科
+      operationId: createSubject
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './common.yaml#/components/schemas/SubjectCreateRequest'
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /admin/subjects/{id}:
+    get:
+      tags: [B-02]
+      summary: 学科详情
+      operationId: getSubject
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+    patch:
+      tags: [B-02]
+      summary: 编辑学科（不含状态）
+      operationId: updateSubject
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './common.yaml#/components/schemas/SubjectUpdateRequest'
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /admin/subjects/{id}/enable:
+    post:
+      tags: [B-02]
+      summary: 启用学科
+      operationId: enableSubject
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /admin/subjects/{id}/disable:
+    post:
+      tags: [B-02]
+      summary: 停用学科
+      operationId: disableSubject
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /admin/subjects/order:
+    put:
+      tags: [B-02]
+      summary: 学科排序
+      operationId: orderSubjects
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './common.yaml#/components/schemas/OrderRequest'
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /admin/courses:
+    get:
+      tags: [B-03]
+      summary: 课程列表
+      operationId: listCourses
+      parameters:
+        - $ref: './common.yaml#/components/parameters/Page'
+        - $ref: './common.yaml#/components/parameters/Size'
+        - name: subjectId
+          in: query
+          schema:
+            type: integer
+        - name: stageId
+          in: query
+          schema:
+            type: integer
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [ENABLED, DISABLED]
+        - name: keyword
+          in: query
+          schema:
+            type: string
+            maxLength: 50
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+    post:
+      tags: [B-03]
+      summary: 新增课程
+      operationId: createCourse
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './common.yaml#/components/schemas/CourseCreateRequest'
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /admin/courses/{id}:
+    get:
+      tags: [B-03]
+      summary: 课程详情
+      operationId: getCourse
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+    patch:
+      tags: [B-03]
+      summary: 编辑课程（不含状态）
+      operationId: updateCourse
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './common.yaml#/components/schemas/CourseUpdateRequest'
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /admin/courses/{id}/enable:
+    post:
+      tags: [B-03]
+      summary: 启用课程
+      operationId: enableCourse
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /admin/courses/{id}/disable:
+    post:
+      tags: [B-03]
+      summary: 停用课程
+      operationId: disableCourse
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /admin/courses/order:
+    put:
+      tags: [B-03]
+      summary: 课程排序
+      operationId: orderCourses
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './common.yaml#/components/schemas/OrderRequest'
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /admin/questions:
+    get:
+      tags: [B-04]
+      summary: 题目列表
+      operationId: listQuestions
+      parameters:
+        - $ref: './common.yaml#/components/parameters/Page'
+        - $ref: './common.yaml#/components/parameters/Size'
+        - name: subjectId
+          in: query
+          schema:
+            type: integer
+        - name: stageId
+          in: query
+          schema:
+            type: integer
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [TRUE_FALSE, SINGLE_CHOICE, MULTIPLE_CHOICE, SHORT_ANSWER]
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [ENABLED, DISABLED]
+        - name: keyword
+          in: query
+          schema:
+            type: string
+            maxLength: 50
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+    post:
+      tags: [B-04]
+      summary: 新增题目
+      operationId: createQuestion
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './common.yaml#/components/schemas/QuestionCreateRequest'
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /admin/questions/{id}:
+    get:
+      tags: [B-04]
+      summary: 题目详情
+      operationId: getQuestion
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+    patch:
+      tags: [B-04]
+      summary: 编辑题目（不含状态/题型）
+      operationId: updateQuestion
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './common.yaml#/components/schemas/QuestionUpdateRequest'
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /admin/questions/{id}/enable:
+    post:
+      tags: [B-04]
+      summary: 启用题目
+      operationId: enableQuestion
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /admin/questions/{id}/disable:
+    post:
+      tags: [B-04]
+      summary: 停用题目
+      operationId: disableQuestion
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /admin/questions/import-template:
+    get:
+      tags: [B-04]
+      summary: 下载题目导入模板
+      operationId: downloadQuestionImportTemplate
+      responses:
+        '200':
+          description: xlsx 模板
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+
+  /admin/questions/import:
+    post:
+      tags: [B-04]
+      summary: 上传并启动题目导入
+      operationId: importQuestions
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /admin/questions/import/{taskId}:
+    get:
+      tags: [B-04]
+      summary: 查询题目导入任务
+      operationId: getQuestionImportTask
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /admin/interview-difficulties:
+    get:
+      tags: [B-05]
+      summary: 难度档位列表
+      operationId: listInterviewDifficulties
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /admin/interview-difficulties/{id}:
+    patch:
+      tags: [B-05]
+      summary: 编辑难度说明/重点
+      operationId: updateInterviewDifficulty
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './common.yaml#/components/schemas/DifficultyUpdateRequest'
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /admin/interview-difficulties/{id}/enable:
+    post:
+      tags: [B-05]
+      summary: 启用难度
+      operationId: enableInterviewDifficulty
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /admin/interview-difficulties/{id}/disable:
+    post:
+      tags: [B-05]
+      summary: 停用难度
+      operationId: disableInterviewDifficulty
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /admin/dimensions:
+    get:
+      tags: [B-05]
+      summary: 学科维度列表
+      operationId: listDimensions
+      parameters:
+        - name: subjectId
+          in: query
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+    post:
+      tags: [B-05]
+      summary: 新增维度
+      operationId: createDimension
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './common.yaml#/components/schemas/DimensionCreateRequest'
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /admin/dimensions/{id}:
+    patch:
+      tags: [B-05]
+      summary: 编辑维度
+      operationId: updateDimension
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './common.yaml#/components/schemas/DimensionUpdateRequest'
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /admin/dimensions/{id}/enable:
+    post:
+      tags: [B-05]
+      summary: 启用维度
+      operationId: enableDimension
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /admin/dimensions/{id}/disable:
+    post:
+      tags: [B-05]
+      summary: 停用维度
+      operationId: disableDimension
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /admin/dimensions/order:
+    put:
+      tags: [B-05]
+      summary: 学科维度排序
+      operationId: orderDimensions
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './common.yaml#/components/schemas/DimensionOrderRequest'
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /admin/learning-paths:
+    get:
+      tags: [B-06]
+      summary: 学习路线列表
+      operationId: listLearningPathsAdmin
+      parameters:
+        - $ref: './common.yaml#/components/parameters/Page'
+        - $ref: './common.yaml#/components/parameters/Size'
+        - name: subjectId
+          in: query
+          schema:
+            type: integer
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [ENABLED, DISABLED]
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+    post:
+      tags: [B-06]
+      summary: 新增学习路线
+      operationId: createLearningPath
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './common.yaml#/components/schemas/PathCreateRequest'
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /admin/learning-paths/{id}:
+    get:
+      tags: [B-06]
+      summary: 学习路线详情（含阶段）
+      operationId: getLearningPathAdmin
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+    patch:
+      tags: [B-06]
+      summary: 编辑学习路线（不含状态）
+      operationId: updateLearningPath
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './common.yaml#/components/schemas/PathUpdateRequest'
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /admin/learning-paths/{id}/enable:
+    post:
+      tags: [B-06]
+      summary: 启用学习路线
+      operationId: enableLearningPath
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /admin/learning-paths/{id}/disable:
+    post:
+      tags: [B-06]
+      summary: 停用学习路线
+      operationId: disableLearningPath
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /admin/learning-paths/{id}/stages:
+    post:
+      tags: [B-06]
+      summary: 新增阶段
+      operationId: createStage
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './common.yaml#/components/schemas/StageCreateRequest'
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /admin/learning-paths/{id}/stages/order:
+    put:
+      tags: [B-06]
+      summary: 阶段排序
+      operationId: orderStages
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './common.yaml#/components/schemas/OrderRequest'
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /admin/stages/{id}:
+    patch:
+      tags: [B-06]
+      summary: 编辑阶段
+      operationId: updateStage
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './common.yaml#/components/schemas/StageUpdateRequest'
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /admin/stages/{id}/enable:
+    post:
+      tags: [B-06]
+      summary: 启用阶段
+      operationId: enableStage
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /admin/stages/{id}/disable:
+    post:
+      tags: [B-06]
+      summary: 停用阶段（UI 删除映射）
+      operationId: disableStage
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /admin/stages/{stageId}/contents:
+    get:
+      tags: [B-06]
+      summary: 阶段已挂载课程/题目
+      operationId: getStageContents
+      parameters:
+        - name: stageId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /admin/students:
+    get:
+      tags: [B-07]
+      summary: 学员列表
+      operationId: listStudents
+      parameters:
+        - $ref: './common.yaml#/components/parameters/Page'
+        - $ref: './common.yaml#/components/parameters/Size'
+        - name: phone
+          in: query
+          schema:
+            type: string
+            pattern: '^1[3-9]\d{9}$'
+        - name: nickname
+          in: query
+          schema:
+            type: string
+            maxLength: 20
+        - name: pathId
+          in: query
+          schema:
+            type: integer
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [ACTIVE, DISABLED, CANCELLED]
+        - name: startDate
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: endDate
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /admin/students/{id}:
+    get:
+      tags: [B-07]
+      summary: 学员详情与最近活跃
+      operationId: getStudent
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /admin/students/{id}/reset-password:
+    post:
+      tags: [B-07]
+      summary: 重置学员密码
+      operationId: resetStudentPassword
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /admin/students/{id}/current-path:
+    put:
+      tags: [B-07]
+      summary: 调整学员主路线
+      operationId: setStudentCurrentPath
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './common.yaml#/components/schemas/StudentPathRequest'
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /admin/students/{id}/disable:
+    post:
+      tags: [B-07]
+      summary: 停用学员
+      operationId: disableStudent
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /admin/students/{id}/enable:
+    post:
+      tags: [B-07]
+      summary: 启用学员
+      operationId: enableStudent
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /admin/students/{id}/cancel:
+    post:
+      tags: [B-07]
+      summary: 注销学员
+      operationId: cancelStudent
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './common.yaml#/components/schemas/StudentCancelRequest'
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /admin/admin-users:
+    get:
+      tags: [B-08]
+      summary: 后台账号列表
+      operationId: listAdminUsers
+      parameters:
+        - $ref: './common.yaml#/components/parameters/Page'
+        - $ref: './common.yaml#/components/parameters/Size'
+        - name: roleId
+          in: query
+          schema:
+            type: integer
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [ACTIVE, DISABLED]
+        - name: keyword
+          in: query
+          schema:
+            type: string
+            maxLength: 50
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+    post:
+      tags: [B-08]
+      summary: 新增后台账号
+      operationId: createAdminUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './common.yaml#/components/schemas/AdminUserCreateRequest'
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /admin/admin-users/{id}:
+    get:
+      tags: [B-08]
+      summary: 后台账号详情
+      operationId: getAdminUser
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+    patch:
+      tags: [B-08]
+      summary: 编辑后台账号（不含状态/密码）
+      operationId: updateAdminUser
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './common.yaml#/components/schemas/AdminUserUpdateRequest'
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /admin/admin-users/{id}/disable:
+    post:
+      tags: [B-08]
+      summary: 停用后台账号
+      operationId: disableAdminUser
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /admin/admin-users/{id}/enable:
+    post:
+      tags: [B-08]
+      summary: 启用后台账号
+      operationId: enableAdminUser
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /admin/admin-users/{id}/reset-password:
+    post:
+      tags: [B-08]
+      summary: 重置后台密码
+      operationId: resetAdminUserPassword
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /admin/roles:
+    get:
+      tags: [B-09]
+      summary: 角色列表
+      operationId: listRoles
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /admin/roles/{id}:
+    get:
+      tags: [B-09]
+      summary: 角色详情与模块
+      operationId: getRole
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /admin/roles/{id}/modules:
+    put:
+      tags: [B-09]
+      summary: 设置角色模块权限
+      operationId: setRoleModules
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './common.yaml#/components/schemas/RoleModulesRequest'
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /admin/operation-logs:
+    get:
+      tags: [B-10]
+      summary: 操作日志查询（只读）
+      operationId: listOperationLogs
+      parameters:
+        - $ref: './common.yaml#/components/parameters/Cursor'
+        - $ref: './common.yaml#/components/parameters/Limit'
+        - name: operatorId
+          in: query
+          schema:
+            type: integer
+        - name: moduleCode
+          in: query
+          schema:
+            type: string
+        - name: action
+          in: query
+          schema:
+            type: string
+        - name: targetType
+          in: query
+          schema:
+            type: string
+        - name: targetId
+          in: query
+          schema:
+            type: string
+        - name: result
+          in: query
+          schema:
+            type: string
+            enum: [SUCCESS, DENIED, FAILED]
+        - name: startAt
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: endAt
+          in: query
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /admin/dashboard:
+    get:
+      tags: [B-11]
+      summary: 数据看板聚合指标
+      operationId: getAdminDashboard
+      parameters:
+        - name: range
+          in: query
+          schema:
+            type: string
+            enum: [TODAY, 7D, 30D]
+            default: TODAY
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+
+  /admin/uploads/images:
+    post:
+      tags: [B-12]
+      summary: 上传学科/课程图片
+      operationId: uploadAdminImage
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, purpose]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                purpose:
+                  type: string
+                  enum: [SUBJECT_COVER, COURSE_COVER]
+      responses:
+        '200':
+          $ref: './common.yaml#/components/responses/Ok'
+        '502':
+          $ref: './common.yaml#/components/responses/BadGateway'
+
+components:
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer

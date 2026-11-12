@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>学习路线详情 · 云枢智学</title>
+<link rel="stylesheet" href="../assets/css/app.css">
+</head>
+<body>
+<div id="app-header"></div>
+<main class="container page" id="app"></main>
+
+<script src="../assets/js/data.js"></script>
+<script src="../assets/js/ui.js"></script>
+<script src="../assets/js/c-shared.js"></script>
+<script>
+(function () {
+  var user = C.init('routes');
+  if (!user) return;
+  var app = document.getElementById('app');
+  var qid = new URLSearchParams(location.search).get('id');
+  var route = DATA.findRoute(qid) || C.route();
+  if (!route) { location.replace('routes.html'); return; }
+  var subject = C.subject(route);
+  var isMain = user.mainRoute === route.id;
+  var stats = C.routeStats(route.id);
+  var currentStage = C.currentStage(route);
+  var currentId = currentStage ? currentStage.id : null;
+
+  var stageHtml = route.stages.map(function (st, i) {
+    var ss = C.stageStats(st.id);
+    var m = C.mastery(st.id);
+    var done = ss.done === ss.total;
+    var isCur = st.id === currentId && !done;
+    var idx = ['一', '二', '三', '四', '五'][i] || (i + 1);
+    return '<div class="tl-item ' + (done ? 'done' : '') + ' ' + (isCur ? 'current' : '') + '" data-stage="' + st.id + '">' +
+      '<div class="tl-idx">' + (done ? UI.icon('check', 17) : idx) + '</div>' +
+      '<div class="tl-main">' +
+        '<h4>' + UI.esc(st.name) +
+          (isCur ? '<span class="tag tag-brand">当前阶段</span>' : '') +
+          (done ? '<span class="tag tag-green">已完成</span>' : '') +
+          (m && m.sample ? '<span class="tag tag-amber">样本较少</span>' : '') +
+        '</h4>' +
+        '<div class="goal">' + UI.esc(st.goal) + '</div>' +
+        '<div class="tl-meta">' +
+          '<span>' + UI.icon('play', 13) + ' ' + st.courses.length + ' 门课程</span>' +
+          '<span>' + UI.icon('edit', 13) + ' ' + st.questions.length + ' 道题</span>' +
+          '<span>' + UI.icon('clock', 13) + ' 约 ' + st.courses.reduce(function (n, c) { return n + c.minutes; }, 0) + ' 分钟</span>' +
+          '<span>' + (m ? '掌握度 <b style="color:' + UI.scoreColor(m.accuracy) + '">' + m.accuracy + '%</b>' : '掌握度 <span class="muted-2">未练习</span>') + '</span>' +
+        '</div>' +
+      '</div>' +
+      '<div class="tl-right">' +
+        '<div class="tl-pct">' + ss.pct + '<small>%</small></div>' +
+        '<span class="btn btn-sm btn-ghost">进入' + UI.icon('chevronRight', 13) + '</span>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+
+  app.innerHTML =
+    '<div class="crumb"><a href="routes.html">学习路线</a><span class="sep">/</span><span>' + UI.esc(subject.name) + '</span></div>' +
+
+    '<section class="hero" style="background:' + C.gradient(subject) + ';box-shadow:0 24px 60px rgba(23,26,46,.2)">' +
+      '<div class="hero-inner">' +
+        '<div style="flex:1;min-width:280px">' +
+          '<div class="hero-route">' + UI.esc(subject.badge) + ' · 学习路线</div>' +
+          '<h1>' + UI.esc(subject.name) + '</h1>' +
+          '<p>' + UI.esc(subject.desc) + '</p>' +
+          '<div class="row mt-20 wrap" style="gap:10px">' +
+            '<a class="btn" style="background:#fff;color:var(--brand)" href="' + C.stageHref(currentId) + '">' + UI.icon('play', 15) + (stats.pct >= 100 ? '复习阶段' : '继续学习') + '</a>' +
+            '<a class="btn" style="background:rgba(255,255,255,.16);color:#fff;backdrop-filter:blur(4px)" href="quiz.html?stage=' + encodeURIComponent(currentId) + '">' + UI.icon('edit', 15) + '去刷题</a>' +
+            (isMain ? '<span class="tag" style="height:38px;padding:0 14px;background:rgba(255,255,255,.2);color:#fff;border-radius:10px">' + UI.icon('check', 14) + '当前主路线</span>'
+                    : '<button class="btn" style="background:rgba(255,255,255,.16);color:#fff" data-set-main="' + route.id + '">设为当前路线</button>') +
+          '</div>' +
+        '</div>' +
+        '<div class="hero-side">' +
+          '<div class="ring" style="--p:' + stats.pct + '"><div style="text-align:center"><span>' + stats.pct + '%</span><small>路线进度</small></div></div>' +
+          '<div>' +
+            '<div style="font-size:12px;color:rgba(255,255,255,.55)">课程完成</div>' +
+            '<div style="font-size:19px;font-weight:800;margin-bottom:10px">' + stats.done + '<span style="font-size:12px;font-weight:600;color:rgba(255,255,255,.5)"> / ' + stats.total + '</span></div>' +
+            '<div style="font-size:12px;color:rgba(255,255,255,.55)">阶段</div>' +
+            '<div style="font-size:19px;font-weight:800">' + route.stages.filter(function (s) { return C.stageStats(s.id).done === C.stageStats(s.id).total; }).length +
+              '<span style="font-size:12px;font-weight:600;color:rgba(255,255,255,.5)"> / ' + route.stages.length + '</span></div>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+    '</section>' +
+
+    '<div class="between mb-12"><div class="section-title" style="margin:0">' + UI.icon('layers', 17) + '阶段安排</div>' +
+      '<span class="small muted">阶段不锁定，可按推荐顺序学习</span></div>' +
+    '<div class="timeline">' + stageHtml + '</div>';
+  // 给时间线加底部间距
+  app.style.paddingBottom = '72px';
+
+  app.addEventListener('click', function (e) {
+    var main = e.target.closest('[data-set-main]');
+    if (main) {
+      UI.confirm('设为当前路线', '设置后，首页将展示「' + subject.name + '」的阶段进度。', function () {
+        user.mainRoute = route.id;
+        Store.set('user', user);
+        UI.toast('已设为当前路线');
+        setTimeout(function () { location.reload(); }, 320);
+      }, '设置');
+      return;
+    }
+    var item = e.target.closest('[data-stage]');
+    if (item) location.href = C.stageHref(item.getAttribute('data-stage'));
+  });
+})();
+</script>
+</body>
+</html>

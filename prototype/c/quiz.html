@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>刷题 · 云枢智学</title>
+<link rel="stylesheet" href="../assets/css/app.css">
+</head>
+<body>
+<div id="app-header"></div>
+<main id="app"></main>
+
+<script src="../assets/js/data.js"></script>
+<script src="../assets/js/ui.js"></script>
+<script src="../assets/js/c-shared.js"></script>
+<script>
+(function () {
+  var user = C.init('quiz');
+  if (!user) return;
+  var app = document.getElementById('app');
+  var sid = new URLSearchParams(location.search).get('stage');
+  var found = sid ? DATA.findStage(sid) : null;
+  var stage = found ? found.stage : null;
+  var route = found ? found.route : null;
+
+  var phase = 'intro';
+  var idx = 0;
+  var answers = [];
+  var sel = [];
+  var submitted = false;
+  var judging = false;
+  var saved = false;
+
+  function letter(i) { return String.fromCharCode(65 + i); }
+  function qs() { return stage.questions; }
+
+  /* ---------------- 阶段选择（未带参数） ---------------- */
+  function renderChooser() {
+    var r = C.route();
+    var head = '<div class="quiz-wrap">' +
+      '<div class="page-head"><div><div class="page-title">阶段练习</div>' +
+      '<div class="page-sub">选择一个阶段，练习该阶段的全部题目。每道题提交后立即判分。</div></div></div>';
+    if (!r) {
+      app.innerHTML = head + '<div class="card">' + UI.emptyHtml('还没有学习路线', '先选择一条学习路线，再来刷题', 'map') +
+        '<div class="center" style="padding-bottom:28px"><a class="btn btn-primary" href="routes.html">去选择路线</a></div></div></div>';
+      return;
+    }
+    var s = C.subject(r);
+    var items = r.stages.map(function (st) {
+      var ss = C.stageStats(st.id);
+      var m = C.mastery(st.id);
+      var isCur = C.currentStage(r) && C.currentStage(r).id === st.id;
+      return '<a class="card card-pad card-hover" style="display:block" href="quiz.html?stage=' + encodeURIComponent(st.id) + '">' +
+        '<div class="between mb-8"><span class="tag tag-brand">' + UI.esc(s.name) + '</span>' +
+          (isCur ? '<span class="tag tag-blue">当前阶段</span>' : '<span class="tag">' + ss.pct + '% 课程完成</span>') + '</div>' +
+        '<div class="semibold" style="font-size:15px">' + UI.esc(st.name) + '</div>' +
+        '<div class="small muted" style="margin-top:4px">' + UI.esc(st.goal) + '</div>' +
+        '<div class="between mt-12"><span class="small muted">' + st.questions.length + ' 道题</span>' +
+          '<span class="small">' + (m ? '掌握度 <b style="color:' + UI.scoreColor(m.accuracy) + '">' + m.accuracy + '%</b>' : '未练习') + '</span></div>' +
+      '</a>';
+    }).join('');
+    app.innerHTML = head + '<div class="grid g2">' + items + '</div></div>';
+  }
+
+  /* ---------------- 介绍页 ---------------- */
+  function renderIntro() {
+    var subject = DATA.content().subjects.find(function (x) { return x.id === route.subjectId; });
+    var count = { judge: 0, single: 0, multi: 0, short: 0 };
+    stage.questions.forEach(function (q) { count[q.type] = (count[q.type] || 0) + 1; });
+    var m = C.mastery(stage.id);
+    var ss = C.stageStats(stage.id);
+
+    app.innerHTML =
+      '<div class="quiz-wrap">' +
+        '<div class="crumb"><a href="routes.html">学习路线</a><span class="sep">/</span>' +
+          '<a href="' + C.stageHref(stage.id) + '">' + UI.esc(stage.name) + '</a><span class="sep">/</span><span>阶段练习</span></div>' +
+        '<div class="card" style="overflow:hidden">' +
+          '<div style="padding:30px 28px;background:' + C.gradient(subject) + ';color:#fff;position:relative;overflow:hidden">' +
+            '<div style="position:absolute;width:220px;height:220px;border-radius:50%;right:-70px;top:-100px;background:rgba(255,255,255,.14)"></div>' +
+            '<div class="row gap-8 mb-8" style="position:relative"><span class="tag" style="background:rgba(255,255,255,.2);color:#fff">' + UI.esc(subject.name) + '</span>' +
+              '<span class="tag" style="background:rgba(255,255,255,.2);color:#fff">' + UI.esc(stage.name) + '</span></div>' +
+            '<h2 style="font-size:23px;font-weight:800;position:relative">阶段练习</h2>' +
+            '<p style="font-size:13px;color:rgba(255,255,255,.78);margin-top:6px;max-width:520px;position:relative">覆盖本阶段全部 ' + stage.questions.length + ' 道题，逐题作答、即时判分。答错的题会自动进入错题本。</p>' +
+          '</div>' +
+          '<div class="card-pad">' +
+            '<div class="grid g4" style="gap:10px">' +
+              ['judge', 'single', 'multi', 'short'].map(function (t) {
+                return '<div class="rs-item"><b>' + count[t] + '</b><span>' + UI.typeLabel(t) + '</span></div>';
+              }).join('') +
+            '</div>' +
+            '<div class="divider"></div>' +
+            '<div class="between" style="flex-wrap:wrap;gap:12px">' +
+              '<div>' +
+                '<div class="small muted">当前掌握度（最近一次练习正确率）</div>' +
+                '<div class="row gap-8 mt-8">' + (m
+                  ? '<span style="font-size:26px;font-weight:800;color:' + UI.scoreColor(m.accuracy) + '">' + m.accuracy + '%</span>' +
+                    (m.sample ? '<span class="tag tag-amber">样本较少</span>' : '<span class="tag tag-green">正常</span>')
+                  : '<span class="small muted">还没有练习记录</span>') +
+                '</div>' +
+              '</div>' +
+              '<div class="small muted" style="line-height:1.9;max-width:360px">' +
+                '· 判断 / 单选 / 多选：提交后立即判分<br>' +
+                '· 多选：全部选对才算正确<br>' +
+                '· 简答：AI 按要点评分，得分 ≥ 60 记为正确' +
+              '</div>' +
+            '</div>' +
+            '<div class="divider"></div>' +
+            (stage.questions.length ? '' : '<div class="feedback warn" style="margin-bottom:16px"><div class="fb-head">' + UI.icon('info', 16) + '该阶段还没有题目</div><div class="fb-body">请运营在后台「内容管理 → 刷题题库」中为该阶段添加题目后再来练习。</div></div>') +
+            '<div class="between" style="flex-wrap:wrap;gap:12px">' +
+              '<a class="btn btn-ghost" href="' + C.stageHref(stage.id) + '">' + UI.icon('chevronLeft', 14) + '返回阶段</a>' +
+              '<button class="btn btn-primary btn-lg" data-start ' + (stage.questions.length ? '' : 'disabled') + '>' + UI.icon('play', 16) + '开始练习（' + stage.questions.length + ' 题）</button>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    app.style.paddingBottom = '60px';
+  }
+
+  /* ---------------- 题目 ---------------- */
+  function renderQuestion() {
+    var q = qs()[idx];
+    var a = answers[idx];
+    var isShort = q.type === 'short';
+    var answeredCount = answers.filter(Boolean).length;
+
+    var bodyHtml;
+    if (isShort) {
+      if (a) {
+        bodyHtml = '<div class="card card-pad" style="background:#FAFBFF;box-shadow:none;margin-bottom:6px;border:1px solid var(--line-2)">' +
+          '<div class="tiny muted mb-8">你的回答</div>' +
+          '<div style="font-size:13.5px;line-height:1.75;white-space:pre-wrap">' + UI.esc(a.ans || a.pending || '（未填写）') + '</div>' +
+        '</div>';
+      } else {
+        bodyHtml = '<textarea class="textarea" id="shortAns" placeholder="用自己的话回答，尽量覆盖关键要点…" style="min-height:130px"></textarea>';
+      }
+    } else {
+      bodyHtml = q.options.map(function (opt, i) {
+        var cls = '';
+        if (a) {
+          var right = (q.answer || []).indexOf(i) >= 0;
+          var picked = (a.ans || []).indexOf(i) >= 0;
+          if (right) cls = 'correct';
+          else if (picked) cls = 'wrong';
+          else cls = 'dim';
+        } else if (sel.indexOf(i) >= 0) cls = 'sel';
+        return '<button class="opt ' + cls + '" data-opt="' + i + '" ' + (a ? 'disabled' : '') + '>' +
+          '<span class="k">' + letter(i) + '</span><span>' + UI.esc(opt) + '</span></button>';
+      }).join('');
+    }
+
+    var feedback = '';
+    if (a && !judging) {
+      feedback = renderFeedback(q, a);
+    } else if (judging) {
+      feedback = '<div class="feedback warn"><span class="ai-judging"><span class="spinner"></span>AI 正在批改你的回答…</span></div>';
+    }
+
+    var action;
+    if (judging) {
+      action = '<button class="btn btn-primary" disabled>批改中…</button>';
+    } else if (!a) {
+      action = '<button class="btn btn-primary" data-submit ' + (canSubmit(q) ? '' : 'disabled') + '>' + UI.icon('check', 15) + '提交答案</button>';
+    } else {
+      action = '<button class="btn btn-primary" data-next>' + (idx === qs().length - 1 ? '查看结果' : '下一题') + UI.icon('arrowRight', 15) + '</button>';
+    }
+
+    app.innerHTML =
+      '<div class="quiz-wrap">' +
+        '<div class="quiz-top">' +
+          '<div class="row gap-12">' +
+            '<button class="btn btn-sm btn-ghost" data-exit>' + UI.icon('chevronLeft', 14) + '退出</button>' +
+            '<div><div class="semibold" style="font-size:13.5px">' + UI.esc(stage.name) + '</div>' +
+            '<div class="tiny muted">第 ' + (idx + 1) + ' / ' + qs().length + ' 题 · 已作答 ' + answeredCount + ' 题</div></div>' +
+          '</div>' +
+          '<div class="row gap-12"><span class="tag tag-brand">' + UI.typeLabel(q.type) + '</span>' +
+            '<span class="small muted mono">' + Math.round(answeredCount / qs().length * 100) + '%</span></div>' +
+        '</div>' +
+        UI.progressHtml(Math.round((idx) / qs().length * 100), 'sm') +
+        '<div class="q-card mt-16">' +
+          '<div class="q-type">' + UI.icon(q.type === 'short' ? 'message' : 'edit', 13) + UI.typeLabel(q.type) +
+            (q.type === 'multi' ? ' · 全部选对才得分' : '') + '</div>' +
+          '<div class="q-stem">' + UI.esc(q.stem) + '</div>' +
+          bodyHtml +
+          feedback +
+          '<div class="quiz-actions">' + action + '</div>' +
+        '</div>' +
+      '</div>';
+    app.style.paddingBottom = '70px';
+
+    if (judging) {
+      autosize();
+      setTimeout(function () {
+        if (!judging) return;
+        judging = false;
+        var res = C.judge(q, answers[idx].pending);
+        answers[idx] = { ans: answers[idx].pending, correct: res.correct, score: res.score, hits: res.hits, reference: res.reference };
+        syncWrong(q, answers[idx]);
+        renderQuestion();
+      }, 1200);
+    }
+    var ta = document.getElementById('shortAns');
+    if (ta) { ta.value = sel[0] || ''; ta.focus(); }
+  }
+
+  function canSubmit(q) {
+    if (q.type === 'short') return String(sel[0] || '').trim().length > 0;
+    return sel.length > 0;
+  }
+
+  function syncWrong(q, rec) {
+    if (rec.correct) C.removeWrong(q.id);
+    else C.addWrong(q.id, { ans: rec.ans });
+  }
+
+  function renderFeedback(q, a) {
+    if (q.type === 'short') {
+      var ok = a.correct;
+      return '<div class="feedback ' + (ok ? 'ok' : 'bad') + '">' +
+        '<div class="fb-head">' + (ok ? UI.icon('check', 16) + 'AI 判定：通过' : UI.icon('alert', 16) + 'AI 判定：未通过') +
+          '<span style="margin-left:auto;font-size:12.5px;font-weight:600;color:var(--muted)">得分 ' + a.score + ' / 100</span></div>' +
+        '<div class="fb-body">按要点匹配情况：</div>' +
+        '<div class="fb-points">' + (a.hits || []).map(function (h) {
+          return '<div class="fb-point"><span class="' + (h.hit ? 'ok' : 'no') + '">' + (h.hit ? UI.icon('check', 13) : UI.icon('x', 13)) + '</span>' +
+            '<span' + (h.hit ? '' : ' style="color:var(--muted)"') + '>' + UI.esc(h.text) + '（' + h.score + ' 分）</span></div>';
+        }).join('') + '</div>' +
+        (a.reference ? '<div class="mt-12" style="font-size:12.5px;line-height:1.75;color:var(--ink-2)"><b>参考答案：</b>' + UI.esc(a.reference) + '</div>' : '') +
+        '<div class="between mt-12" style="gap:10px;flex-wrap:wrap">' +
+          '<span class="tiny muted">得分 ≥ 60 记为正确；AI 判定有偏差时可手动修正。</span>' +
+          '<button class="btn btn-sm btn-ghost" data-override>' + (ok ? '改为错误' : '改为正确') + '</button>' +
+        '</div>' +
+      '</div>';
+    }
+    var answerText = (q.answer || []).map(function (i) { return letter(i) + '. ' + q.options[i]; }).join('　');
+    if (a.correct) {
+      return '<div class="feedback ok">' +
+        '<div class="fb-head">' + UI.icon('check', 16) + '回答正确</div>' +
+        '<div class="fb-body">' + (q.explanation || '') + '</div>' +
+      '</div>';
+    }
+    return '<div class="feedback bad">' +
+      '<div class="fb-head">' + UI.icon('x', 16) + '回答错误</div>' +
+      '<div class="fb-body"><b>正确答案：</b>' + UI.esc(answerText) + '<br>' + (q.explanation || '') + '</div>' +
+      '<div class="tiny muted" style="margin-top:8px">该题已加入<a href="wrongbook.html" style="color:var(--brand);font-weight:600">错题本</a></div>' +
+    '</div>';
+  }
+
+  function autosize() {
+    var ta = document.querySelector('.iv-input textarea');
+    if (ta) ta.style.height = '44px';
+  }
+
+  function submit() {
+    var q = qs()[idx];
+    if (!canSubmit(q) || answers[idx]) return;
+    if (q.type === 'short') {
+      answers[idx] = { pending: String(sel[0]).trim() };
+      judging = true;
+      renderQuestion();
+      return;
+    }
+    var res = C.judge(q, sel.slice());
+    answers[idx] = { ans: sel.slice(), correct: res.correct, score: res.score, hits: res.hits };
+    syncWrong(q, answers[idx]);
+    renderQuestion();
+  }
+
+  function next() {
+    if (idx < qs().length - 1) {
+      idx++;
+      sel = [];
+      submitted = false;
+      renderQuestion();
+    } else {
+      finish();
+    }
+  }
+
+  function finish() {
+    var correct = answers.filter(function (a) { return a && a.correct; }).length;
+    var total = qs().length;
+    var accuracy = Math.round(correct / total * 100);
+    if (!saved) {
+      saved = true;
+      C.addPractice({
+        id: UI.uid('pr'),
+        type: 'stage',
+        subjectId: route.subjectId,
+        routeId: route.id,
+        stageId: stage.id,
+        stageName: stage.name,
+        correct: correct,
+        total: total,
+        accuracy: accuracy,
+        at: C.nowStr()
+      });
+    }
+    var wrongs = [];
+    qs().forEach(function (q, i) {
+      if (answers[i] && !answers[i].correct) wrongs.push({ q: q, a: answers[i] });
+    });
+    var subject = DATA.content().subjects.find(function (x) { return x.id === route.subjectId; });
+    var sample = total < 10;
+
+    app.innerHTML =
+      '<div class="quiz-wrap" style="max-width:780px">' +
+        '<div class="card">' +
+          '<div class="result-hero">' +
+            '<div class="score-ring" style="--p:' + accuracy + '"><div class="val" style="color:' + UI.scoreColor(accuracy) + '">' + accuracy + '<small>%</small></div></div>' +
+            '<h2 style="margin-top:2px">练习完成</h2>' +
+            '<p>' + UI.esc(subject.name) + ' · ' + UI.esc(stage.name) + '</p>' +
+            '<div class="result-stats" style="width:100%;max-width:440px;margin-left:auto;margin-right:auto">' +
+              '<div class="rs-item" style="background:#F3FCF7;border-color:#D9F2E4"><b style="color:#0B8A4B">' + correct + '</b><span>答对</span></div>' +
+              '<div class="rs-item" style="background:#FFF6F5;border-color:#FBE4E1"><b style="color:var(--red)">' + (total - correct) + '</b><span>答错</span></div>' +
+              '<div class="rs-item"><b>' + total + '</b><span>总题数</span></div>' +
+            '</div>' +
+          '</div>' +
+          '<div class="card-pad">' +
+            '<div class="feedback ' + (sample ? 'warn' : 'ok') + '" style="margin-top:0;margin-bottom:18px">' +
+              '<div class="fb-head">' + UI.icon(sample ? 'info' : 'target', 16) + '掌握度已更新为 ' + accuracy + '%</div>' +
+              '<div class="fb-body">本阶段掌握度 = 最近一次阶段练习的正确率。' +
+                (sample ? '本次题量少于 10 道，标记为“样本较少”，仅作参考。' : '') + '</div>' +
+            '</div>' +
+
+            '<div class="section-title" style="font-size:14px">' + UI.icon('book', 16) + '本次错题（' + wrongs.length + '）</div>' +
+            (wrongs.length ? wrongs.map(function (w) {
+              var q = w.q;
+              return '<div class="wrong-item" style="margin-bottom:10px">' +
+                '<div class="between mb-8"><span class="tag tag-brand">' + UI.typeLabel(q.type) + '</span>' +
+                  '<a class="small" style="color:var(--brand);font-weight:600" href="wrongbook.html">去错题本</a></div>' +
+                '<div class="q-stem" style="font-size:14px">' + UI.esc(q.stem) + '</div>' +
+                '<div class="answer-line"><span class="lb">你的答案</span><span class="my">' + UI.esc(C.answerText(q, w.a.ans)) + '</span></div>' +
+                '<div class="answer-line"><span class="lb">正确答案</span><span class="right">' +
+                  UI.esc(q.type === 'short' ? (q.reference || '见解析') : C.answerText(q, q.answer)) + '</span></div>' +
+              '</div>';
+            }).join('') : '<div class="small muted" style="padding:6px 0 14px">全部答对，没有新增错题 🎉</div>') +
+
+            '<div class="row mt-20" style="justify-content:space-between;gap:10px;flex-wrap:wrap">' +
+              '<a class="btn btn-ghost" href="' + C.stageHref(stage.id) + '">返回阶段</a>' +
+              '<div class="row gap-8">' +
+                '<button class="btn btn-ghost" data-restart>' + UI.icon('refresh', 14) + '再练一次</button>' +
+                '<a class="btn btn-primary" href="records.html">查看练习记录</a>' +
+              '</div>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    window.scrollTo(0, 0);
+  }
+
+  /* ---------------- 事件 ---------------- */
+  app.addEventListener('click', function (e) {
+    if (e.target.closest('[data-start]')) {
+      if (!stage.questions.length) { UI.toast('该阶段暂未配置题目', 'err'); return; }
+      answers = []; idx = 0; sel = []; judging = false; saved = false;
+      phase = 'quiz';
+      renderQuestion();
+      return;
+    }
+    var opt = e.target.closest('[data-opt]');
+    if (opt) {
+      if (answers[idx] || judging) return;
+      var i = Number(opt.getAttribute('data-opt'));
+      var q = qs()[idx];
+      if (q.type === 'multi') {
+        var p = sel.indexOf(i);
+        if (p >= 0) sel.splice(p, 1); else sel.push(i);
+      } else {
+        sel = [i];
+      }
+      Array.prototype.forEach.call(document.querySelectorAll('.opt'), function (b) {
+        b.classList.toggle('sel', sel.indexOf(Number(b.getAttribute('data-opt'))) >= 0);
+      });
+      var sb = document.querySelector('[data-submit]');
+      if (sb) sb.disabled = !canSubmit(q);
+      return;
+    }
+    if (e.target.closest('[data-submit]')) { submit(); return; }
+    if (e.target.closest('[data-next]')) { next(); return; }
+    if (e.target.closest('[data-restart]')) {
+      answers = []; idx = 0; sel = []; saved = false; judging = false;
+      renderQuestion();
+      return;
+    }
+    if (e.target.closest('[data-exit]')) {
+      UI.confirm('退出练习', '当前进度不会保存，确定退出本次练习吗？', function () {
+        location.href = C.stageHref(stage.id);
+      }, '退出', true);
+      return;
+    }
+    if (e.target.closest('[data-override]')) {
+      var rec = answers[idx];
+      rec.correct = !rec.correct;
+      syncWrong(qs()[idx], rec);
+      UI.toast('已手动修正判定结果', 'info');
+      renderQuestion();
+      return;
+    }
+  });
+
+  app.addEventListener('input', function (e) {
+    if (e.target.id === 'shortAns') {
+      sel = [e.target.value];
+      var sb = document.querySelector('[data-submit]');
+      if (sb) sb.disabled = !canSubmit(qs()[idx]);
+    }
+  });
+
+  /* ---------------- 启动 ---------------- */
+  if (stage) { renderIntro(); }
+  else { renderChooser(); }
+})();
+</script>
+</body>
+</html>

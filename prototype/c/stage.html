@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>阶段学习 · 云枢智学</title>
+<link rel="stylesheet" href="../assets/css/app.css">
+</head>
+<body>
+<div id="app-header"></div>
+<main class="container page" id="app"></main>
+
+<script src="../assets/js/data.js"></script>
+<script src="../assets/js/ui.js"></script>
+<script src="../assets/js/c-shared.js"></script>
+<script>
+(function () {
+  var user = C.init('home');
+  if (!user) return;
+  var app = document.getElementById('app');
+  var sid = new URLSearchParams(location.search).get('id');
+  var found = sid ? DATA.findStage(sid) : null;
+  if (!found) {
+    var cr = C.route();
+    if (!cr) { location.replace('routes.html'); return; }
+    found = { stage: C.currentStage(cr), route: cr };
+  }
+  var stage = found.stage;
+  var route = found.route;
+  var subject = DATA.content().subjects.find(function (s) { return s.id === route.subjectId; });
+  var stageIdx = route.stages.findIndex(function (s) { return s.id === stage.id; });
+  var nextStage = route.stages[stageIdx + 1] || null;
+
+  function courseRow(c, i) {
+    var done = C.isCompleted(c.id);
+    var started = C.isStarted(c.id);
+    var meta = '<div class="meta"><span>' + UI.icon('clock', 12) + ' ' + c.minutes + ' 分钟</span><span>' + (done ? '已完成 · ' + UI.fmtDate(C.progress()[c.id].completedAt) : started ? '学习中' : '未开始') + '</span></div>';
+    return '<div class="course-row ' + (done ? 'done' : '') + '">' +
+      '<div class="course-num">' + (done ? UI.icon('check', 14) : (i + 1)) + '</div>' +
+      '<div class="course-main"><h4>' + UI.esc(c.title) + '</h4>' + meta + '</div>' +
+      '<div class="course-act">' +
+        (done
+          ? '<span class="tag tag-green">' + UI.icon('check', 12) + '已完成</span><button class="btn btn-sm btn-ghost" data-learn="' + c.id + '">回看</button>'
+          : '<button class="btn btn-sm ' + (started ? 'btn-ghost' : 'btn-soft') + '" data-learn="' + c.id + '">' + UI.icon('play', 13) + (started ? '继续学习' : '去学习') + '</button>') +
+      '</div>' +
+    '</div>';
+  }
+
+  function render() {
+    var ss = C.stageStats(stage.id);
+    var mastery = C.mastery(stage.id);
+    var wrongCount = C.wrongList({ stageId: stage.id }).length;
+    var pct = ss.pct;
+
+    app.innerHTML =
+      '<div class="crumb"><a href="routes.html">学习路线</a><span class="sep">/</span>' +
+        '<a href="' + C.routeHref(route.id) + '">' + UI.esc(subject.name) + '</a><span class="sep">/</span>' +
+        '<span>' + UI.esc(stage.name) + '</span></div>' +
+
+      '<div class="card card-pad mb-20" style="display:flex;justify-content:space-between;gap:24px;flex-wrap:wrap;align-items:center">' +
+        '<div style="flex:1;min-width:280px">' +
+          '<div class="row gap-8 mb-8"><span class="tag tag-brand">' + UI.esc(subject.name) + '</span>' +
+            (pct === 100 ? '<span class="tag tag-green">阶段已完成</span>' : '') + '</div>' +
+          '<h1 style="font-size:24px;font-weight:800;letter-spacing:-.4px">' + UI.esc(stage.name) + '</h1>' +
+          '<p class="muted" style="font-size:13.5px;margin-top:6px;max-width:560px">' + UI.esc(stage.goal) + '</p>' +
+          '<div class="row wrap mt-16" style="gap:18px;color:var(--muted);font-size:12.5px">' +
+            '<span class="row gap-6">' + UI.icon('video', 14) + ss.total + ' 门课程</span>' +
+            '<span class="row gap-6">' + UI.icon('edit', 14) + stage.questions.length + ' 道题</span>' +
+            '<span class="row gap-6">' + UI.icon('clock', 14) + stage.courses.reduce(function (n, c) { return n + c.minutes; }, 0) + ' 分钟</span>' +
+          '</div>' +
+        '</div>' +
+        '<div style="min-width:200px">' +
+          '<div class="between" style="margin-bottom:8px"><span class="small muted">课程完成</span>' +
+            '<span style="font-size:20px;font-weight:800">' + ss.done + '<span style="font-size:12px;color:var(--muted);font-weight:600"> / ' + ss.total + '</span></span></div>' +
+          UI.progressHtml(pct, '') +
+          '<div class="small muted mt-8">' + (pct === 100 ? '全部课程已完成，去做一次练习检验掌握度' : '完成全部课程后，本阶段视为完成') + '</div>' +
+        '</div>' +
+      '</div>' +
+
+      '<div class="grid" style="grid-template-columns:minmax(0,1fr) 320px;align-items:start">' +
+        '<div class="card">' +
+          '<div class="card-hd"><div><div class="card-title">课程列表</div>' +
+            '<div class="small muted" style="margin-top:2px">点击“去学习”会在新标签页打开 Bilibili 视频，看完回到本页确认完成</div></div>' +
+            '<span class="tag">' + ss.done + ' / ' + ss.total + '</span></div>' +
+          '<div class="card-pad">' + stage.courses.map(courseRow).join('') + '</div>' +
+        '</div>' +
+
+        '<div class="col gap-16">' +
+          '<div class="card card-pad">' +
+            '<div class="between mb-12"><div class="card-title">本阶段掌握度</div>' +
+              (mastery ? '<span class="tag ' + (mastery.sample ? 'tag-amber' : 'tag-brand') + '">' + (mastery.sample ? '样本较少' : '最近一次') + '</span>' : '') + '</div>' +
+            (mastery
+              ? '<div class="row" style="gap:16px"><div style="font-size:34px;font-weight:800;letter-spacing:-1px;color:' + UI.scoreColor(mastery.accuracy) + '">' + mastery.accuracy + '<small style="font-size:14px">%</small></div>' +
+                  '<div class="small muted" style="line-height:1.6">答对 ' + (mastery.correct != null ? mastery.correct : Math.round(mastery.accuracy * mastery.total / 100)) + ' / ' + mastery.total + ' 题<br>' + UI.fmtDate(mastery.at) + '</div></div>' +
+                (mastery.sample ? '<div class="small" style="color:#B54708;margin-top:10px">题量少于 10 道，数据仅供参考</div>' : '')
+              : '<div class="small muted" style="padding:6px 0 4px">还没有完成过本阶段的练习。</div>' +
+                '<div class="small muted">掌握度 = 最近一次阶段练习的正确率。</div>') +
+            '<a class="btn btn-primary btn-block mt-16" href="quiz.html?stage=' + encodeURIComponent(stage.id) + '">' + UI.icon('edit', 15) + (mastery ? '再练一次' : '开始刷题') + '</a>' +
+            (wrongCount ? '<a class="btn btn-ghost btn-block mt-8" href="wrongbook.html">本阶段 ' + wrongCount + ' 道错题待复习</a>' : '') +
+          '</div>' +
+
+          '<div class="card card-pad" style="background:linear-gradient(160deg,#171A2E,#2A2450);color:#fff;border:0">' +
+            '<div class="row gap-8 mb-8"><span style="color:#C9C4FF">' + UI.icon('sparkles', 17) + '</span><b style="font-size:14px">学完来一次 AI 面试</b></div>' +
+            '<p style="font-size:12.5px;color:rgba(255,255,255,.68);line-height:1.7">AI 会基于本阶段课程内容生成 4 轮语音面试题，并输出维度报告。</p>' +
+            '<a class="btn btn-sm btn-block mt-16" style="background:#fff;color:var(--brand)" href="interview.html">开始 AI 面试</a>' +
+          '</div>' +
+
+          (nextStage ? '<div class="card card-pad">' +
+            '<div class="small muted mb-8">下一阶段</div>' +
+            '<div class="semibold" style="font-size:14px">' + UI.esc(nextStage.name) + '</div>' +
+            '<div class="small muted" style="margin-top:4px">' + UI.esc(nextStage.goal) + '</div>' +
+            '<a class="btn btn-sm btn-ghost btn-block mt-12" href="' + C.stageHref(nextStage.id) + '">提前查看' + UI.icon('chevronRight', 13) + '</a>' +
+          '</div>' : '') +
+        '</div>' +
+      '</div>';
+  }
+
+  render();
+  app.style.paddingBottom = '72px';
+
+  function openCourse(c) {
+    var done = C.isCompleted(c.id);
+    if (!done) { C.markStarted(c.id); render(); }
+    var m = UI.modal({
+      title: done ? '回看课程' : '准备开始学习',
+      subtitle: stage.name + ' · ' + c.minutes + ' 分钟',
+      body:
+        '<div class="card card-pad" style="border:1px solid var(--line);box-shadow:none;margin-bottom:16px">' +
+          '<div class="row gap-10"><div class="tool-ic ic-brand" style="width:38px;height:38px;border-radius:11px">' + UI.icon('video', 19) + '</div>' +
+          '<div><div class="semibold" style="font-size:14px">' + UI.esc(c.title) + '</div>' +
+          '<div class="tiny muted">Bilibili 视频 · 单课程单链接</div></div></div>' +
+        '</div>' +
+        '<div class="small muted" style="line-height:1.9">' +
+          '<b style="color:var(--ink-2)">学习流程</b><br>' +
+          '1. 点击下方按钮，在新标签页打开 Bilibili 观看课程；<br>' +
+          '2. 看完后回到本页面；<br>' +
+          '3. 系统会询问是否完成本节，确认后计入进度。<br>' +
+          '<span style="color:var(--muted-2)">原型演示中不会真实跳转，可直接点击“看完了，标记完成”。</span>' +
+        '</div>',
+      actions: [
+        { label: '稍后再说', cls: 'btn-ghost' },
+        { label: '看完了，标记完成', cls: 'btn-primary', icon: 'check', onClick: function () { complete(c); } }
+      ]
+    });
+    // 在 modal body 后追加“打开视频”快捷按钮
+    var body = m.el.querySelector('.modal-body');
+    if (body) {
+      var a = document.createElement('a');
+      a.className = 'btn btn-ghost btn-block mt-12';
+      a.href = c.url || 'https://www.bilibili.com/';
+      a.target = '_blank';
+      a.rel = 'noopener';
+      a.innerHTML = UI.icon('video', 15) + '在新标签页打开 Bilibili 视频';
+      body.appendChild(a);
+    }
+  }
+
+  function complete(c) {
+    C.markCompleted(c.id);
+    var ss = C.stageStats(stage.id);
+    render();
+    UI.toast('已标记完成：' + c.title);
+    if (ss.done === ss.total) {
+      var mastery = C.mastery(stage.id);
+      setTimeout(function () {
+        UI.modal({
+          title: '🎉 本阶段课程全部完成',
+          subtitle: stage.name,
+          body:
+            '<div class="small" style="color:var(--ink-2);line-height:1.8">' +
+              '课程看完了，但“看过”不等于“掌握”。建议马上做一次阶段练习，' +
+              '系统会记录本阶段的掌握度（最近一次练习正确率）。' +
+            '</div>' +
+            (mastery ? '<div class="small muted mt-12">当前掌握度：<b style="color:' + UI.scoreColor(mastery.accuracy) + '">' + mastery.accuracy + '%</b></div>' : '') +
+            '<div class="card card-pad mt-16" style="background:#FAFBFF;border:1px solid var(--line-2);box-shadow:none">' +
+              '<div class="small muted">本阶段共 ' + stage.questions.length + ' 道题，逐题作答、即时判分，答错自动进入错题本。</div>' +
+            '</div>',
+          actions: [
+            { label: '稍后', cls: 'btn-ghost' },
+            { label: '去刷题', cls: 'btn-primary', icon: 'edit', onClick: function () { location.href = 'quiz.html?stage=' + encodeURIComponent(stage.id); } }
+          ]
+        });
+      }, 380);
+    }
+  }
+
+  app.addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-learn]');
+    if (!btn) return;
+    var f = DATA.findCourse(btn.getAttribute('data-learn'));
+    if (f) openCourse(f.course);
+  });
+})();
+</script>
+</body>
+</html>
